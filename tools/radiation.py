@@ -532,10 +532,9 @@ def main():
     #check if path is a directory
     isDirectory = os.path.isdir(args.files[0])
     
-    
     if isDirectory:
         file_path = os.path.join(args.files[0], '')
-        files = [file_path + f for f in os.listdir(file_path) if os.path.isfile(os.path.join(file_path, f))]
+        files = sorted([file_path + f for f in os.listdir(file_path) if os.path.isfile(os.path.join(file_path, f))])
     else:
         files = args.files 
     
