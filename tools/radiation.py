@@ -62,7 +62,7 @@ def shock_finder(vfield: np.ndarray, r: np.ndarray) -> int:
     
     divs   = np.asanyarray(divs)
 
-def calc_bfield_shock(rho: float, lorentz_gamma: float, beta: float, eb: float = 0.1) -> float:
+def calc_bfield_shock(rho: float, lorentz_gamma: float, beta: float, eps_b: float = 0.1) -> float:
     """
     Calc magnitude of magnetic field assuming shock jump conditions
     
@@ -71,28 +71,28 @@ def calc_bfield_shock(rho: float, lorentz_gamma: float, beta: float, eb: float =
     rho:           fluid density in rest frame 
     lorentz_gamma: lorentz factor 
     beta:          dimensionless velocity of flow 
-    eb:            magnetic energy fraction
+    eps_b:            magnetic energy fraction
     
     Return:
     ------------------------------------------------
     The magnetic field magnitude 
     """
-    return (8.0 * np.pi * eb * rho * rho_scale)**0.5 * lorentz_gamma * beta * const.c.cgs
+    return (8.0 * np.pi * eps_b * rho * rho_scale)**0.5 * lorentz_gamma * beta * const.c.cgs
 
-def calc_bfield_shock_other(einternal: float, eb: float) -> float:
+def calc_bfield_shock_other(einternal: float, eps_b: float) -> float:
     """
     Calc magnitude of magnetic field assuming shock jump conditions
     
     Params:
     ------------------------------------------------
     einternal:     internal energy density
-    eb:            magnetic energy fraction
+    eps_b:            magnetic energy fraction
     
     Return:
     ------------------------------------------------
     The magnetic field magnitude 
     """
-    return (8.0 * np.pi * eb * einternal)**0.5
+    return (8.0 * np.pi * eps_b * einternal)**0.5
     
 def calc_gyration_frequecy(b_field: float) -> float:
     """
@@ -238,48 +238,271 @@ def calc_doppler_delta(lorentz_gamma: float, beta_vector: np.ndarray, n_hat: np.
     """
     return 1.0 / (lorentz_gamma * (1.0  - vector_dotproduct(beta_vector, n_hat)))
 
-def sari_piran_narayan_99():
-    pass
-    # tday    = dset['time'].to(units.day)                           # Time in days
-    # dV      = calc_cell_volume(mesh['rr'], mesh['theta'])          # Dimensionless cell volume
-    # etot    = np.sum(prims2var(fields, "energy") * dV * e_scale)   # Dimensionful total energy in domain
-    # r       = mesh['rr'] * R_0                                     # Dimensionful length scale
-    # R3      = args.srad * R_0                                      # Outer radius of star
-    # mdot    = (1e-6 * units.M_sun/units.yr).to(units.g/units.s)    # Mass loss rate in g/s
-    # vw      = 1e8 * units.cm/units.s                               # Wind speed in cm/s
-    # nwind   = mdot / (4 * np.pi * vw * r**2) / const.m_p.cgs       # Baryon number density of wind
-    # e52     = etot.to(units.erg) / (1e52 * units.erg)              # Dimenless energy normalized to 1e52 erg
-    # td      = tday / units.day                                     # Dimensionless time normalized to 1 day  
-    # eb_m1   = eb / 0.1                                             # Scale factor for magnetic field fraction
-    # ee_m1   = ee / 0.1                                             # Scale factor for electric field fraction
-    # d_28    = (r / (1e28 * units.cm))                              # Dimensionless distance scale factor normalized to 1e28 cm
-    # n1      = nwind / (1 * units.cm**(-3))                         # Dimensionless baryon number scale factor normalized to 1 g per cc
+def calc_nu(gamma_e: float, nu_g: float):
+    """Calculate frequency as function of lorentz_factor"""
+    return gamma_e ** 2 * nu_g 
+
+def calc_critical_lorentz(bfield: float, time: float)-> float:
+    """Calculate the critical Lorentz factor as function of time and magnetic field"""
+    return (6.0 * np.pi * const.m_e.cgs * const.c.cgs) / (const.sigma_T.cgs * bfield ** 2 * time)
+
+def calc_max_power_per_frequency(bfield: float) -> float:
+    """Calculate the maximum power per frequency""" 
+    return (const.m_e.cgs * const.c.cfs ** 2 * const.sigma_T.cgs) / (3.0 * const.e.gauss) * bfield
+
+def calc_gamma_min(eps_e: float, p: float) -> float:
+    """
+    Calculate the minimum lorentz factor of electrons in the distribution
     
-    # nu_c_sphere = 2.70e12 * eb_m1**(-3/2) * e52 **(-1/2) * n1**(-1)  * td  **(-1/2) * units.Hz # Critical frequency assuming spherical geometry
-    # nu_m_sphere = 5.70e14 * eb_m1**( 1/2) * e52 **( 1/2) * ee_m1**2  * td  **(-3/2) * units.Hz # Crtical  frequency assuming spherical geometry
-    # fnu_max     = 1.1e5   * eb_m1**( 1/2) * e52  *         n1**(1/2) * d_28**(-2)              # Max flux in arbitrary units 
+    Params:
+    ------------------------------
+    eps_e:              fraction of internal energy due to electric field
+    p:                  spectral electron number index 
     
-    # def flux(nu: np.ndarray, tidx: int, r_shock: int) -> np.ndarray:
-    #     """
-    #     ---------------------------------------
-    #     Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
-    #     ---------------------------------------
-    #     """
-    #     nu_c     = nu_c_sphere[tidx][r_shock]
-    #     nu_m     = nu_m_sphere
+    Return:
+    ------------------------------
+    Minimum lorentz factor of electrons
+    """
+    return eps_e * (p - 2.0)/ (p - 1.0) * const.m_p.cgs / const.m_e.cgs 
+
+def sari_piran_narayan_99(
+    fields:        dict, 
+    args:          argparse.ArgumentParser, 
+    events_list:   list,
+    mesh:          dict, 
+    dset:          dict, 
+    overplot:      bool=False, 
+    subplot:       bool=False, 
+    ax:            plt.Axes=None, 
+    case:          int=0
+) -> None:
+    
+    def flux(
+        flux_max: float, 
+        p:        float,
+        nu:       float, 
+        nu_c:     float, 
+        nu_m:     float, 
+        ndim:     int = 1, 
+        cooling:  str = 'slow') -> float:
+        """
+        ---------------------------------------
+        Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
+        ---------------------------------------
+        """
+        fluxes = np.zeros_like(flux_max)
+        if ndim == 1:
+            for ridx in range(r.size):
+                nu_crit = nu_c[ridx]
+                nu_min  = nu_m[ridx]
+                # Slow cooling
+                if cooling == 'slow':
+                    if nu_min > nu:
+                        fluxes[:, :, ridx] = (nu/nu_min)**(1/3)*flux_max[:, :, ridx]
+                    elif (nu < nu_crit) and (nu > nu_min):
+                        fluxes[:, :, ridx] = (nu/nu_min) **(-(p-1)/2)*flux_max[:, :, ridx]
+                    elif nu > nu_crit:
+                        fluxes[:, :, ridx] = (nu_crit/nu_min)**(-(p-1)/2)*(nu/nu_crit)**(-p/2)*flux_max[:, :, ridx] 
+                else:
+                # Fast Cooling
+                    if nu_crit > nu:
+                        fluxes[:, :, ridx] = (nu/nu_crit)**(1/3)*flux_max[:, :, ridx]
+                    elif (nu < nu_min) and (nu > nu_crit):
+                        fluxes[:, :, ridx] = (nu/nu_crit) **(-1/2)*flux_max[:, :, ridx]
+                    elif nu > nu_min:
+                        fluxes[:, :, ridx] = (nu_min/nu_crit)**(-1/2)*(nu/nu_min)**(-p/2)*flux_max[:, :, ridx] 
+        else:
+            for tidx in range(theta.size):
+                for ridx in range(r.size):
+                    nu_crit = nu_c[tidx, ridx]
+                    nu_min  = nu_m[tidx, ridx]
+                    # Slow cooling
+                    if cooling == 'slow':
+                        if nu_min > nu:
+                            fluxes[:, tidx, ridx] = (nu/nu_min)**(1/3)*flux_max[:, tidx, ridx]
+                        elif (nu < nu_crit) and (nu > nu_min):
+                            fluxes[:, tidx, ridx] = (nu/nu_min) **(-(p-1)/2)*flux_max[:, tidx, ridx]
+                        elif nu > nu_crit:
+                            fluxes[:, tidx, ridx] = (nu_crit/nu_min)**(-(p-1)/2)*(nu/nu_crit)**(-p/2)*flux_max[:, tidx, ridx] 
+                    else:
+                    # Fast Cooling
+                        if nu_crit > nu:
+                            fluxes[:, tidx, ridx] = (nu/nu_crit)**(1/3)*flux_max[:, tidx, ridx]
+                        elif (nu < nu_min) and (nu > nu_crit):
+                            fluxes[:, tidx, ridx] = (nu/nu_crit) **(-1/2)*flux_max[:, tidx, ridx]
+                        elif nu > nu_min:
+                            fluxes[:, tidx, ridx] = (nu_min/nu_crit)**(-1/2)*(nu/nu_min)**(-p/2)*flux_max[:, tidx, ridx] 
+            
+        return fluxes 
+    
+    beta                 = util.calc_beta(fields)
+    w                    = util.calc_lorentz_gamma(fields)
+    t_prime              = dset['time'] * time_scale
+    
+    #================================================================
+    #                    HYDRO CONDITIONS
+    #================================================================
+    p = 2.5
+    eps_b      = 0.01                                    # Electric field fraction of interbal energy 
+    eps_e      = 0.1                                    # Magnetic field fraction of internal energy
+    
+    rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)   # internal energy density
+    bfield        = calc_bfield_shock_other(rho_einternal, eps_b)        # magnetic field based on equipartition
+    ub            = bfield**2 / (8.0 * np.pi)                            # magnetic energy density
+    n_e           = fields['rho'] * w * rho_scale / const.m_p.cgs        # electron number density
+    dt            = args.dt * time_scale                                  # step size between checkpoints
+    nu_g          = calc_gyration_frequecy(bfield)                        # gyration frequency
+    
+    gamma_min  = calc_gamma_min(eps_e, p)               # Minimum Lorentz factor of electrons 
+    gamma_max  = args.gamma_lims[1]                     # Maximum Lorentz factor of electrons
+    gamma_crit = calc_critical_lorentz(bfield, t_prime) # Criticl Lorentz factor of electrons
+    
+    # Make up some gamma bins for the electrons
+    dgamma      = (gamma_max - gamma_min) / 100.0
+    gamma_bins  = np.arange(gamma_min, gamma_max, dgamma)
+    radial_cell = beta.argmax()
+    
+    r = mesh['r']
+    angular_samples = 10
+    ndim = 1 
+    if 'theta' in mesh:
+        ndim += 1
+        theta = mesh['th']
+    else:
+        theta = np.linspace(0.0, np.pi, angular_samples)
         
-    #     gtr_crit = nu > nu_c 
-    #     between  = (nu < nu_m) & (nu > nu_c) 
-    #     gtr_sync = nu > nu_c
+    if 'phi' in mesh:
+        ndim += 1
+        phi  = mesh['phi']
+    else:
+        phi = np.linspace(0.0, 2.0 * np.pi, angular_samples)
+
+    thetta, phii, rr = np.meshgrid(theta, phi, r)
+    
+     # Calc cell volumes
+    if ndim == 1:
+        dvolume = util.calc_cell_volume1D(mesh['r']) * length_scale**3  
+    elif ndim == 2:
+        dvolume = util.calc_cell_volume2D(mesh['rr'], mesh['theta']) * length_scale**3 
         
-    #     if nu < nu_c:
-    #         return (nu/nu_c)**( 1/3)*fnu_max[tidx][r_shock] 
-    #     elif (nu < nu_m) & (nu > nu_c):
-    #         return (nu/nu_c) **(-1/2)*fnu_max[tidx][r_shock]
-    #     elif nu > nu_m:
-    #         return (nu_m/nu_c)**(-1/2)*(nu/nu_m)**(-p/2)*fnu_max[tidx][r_shock]  
+    rhat          = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector                                                                                 # electron particle number index   
+    beta_vec      = beta * rhat
     
+    # We choose a basis such that the observer lies along the direction nhat
+    # retarded time transformation
+    t  = t_prime - rr * length_scale / const.c.cgs
+    d  = (1.0 * units.Gpc).to(units.cm)
+    t += d / const.c.cgs 
     
+    nu_c              = calc_nu(gamma_crit, nu_g)
+    nu_m              = calc_nu(gamma_min, nu_g)
+    n_e               = fields['rho'] * w * rho_scale / const.m_p.cgs 
+    dvolume           = util.calc_cell_volume1D(mesh['r']) * length_scale**3
+    electron_number   = n_e * dvolume
+    alpha             = (p - 1.0)/2.0
+    delta_doppler     = calc_doppler_delta(w, beta_vector=beta_vec, n_hat=rhat)
+    nelectrons        = calc_nelectrons_at_gamma_e(electron_number, gamma_crit, dgamma)
+    one_power         = w * calc_total_synch_power(gamma_crit, ub, beta)
+    flux_max          = nelectrons * one_power / (4.0 * np.pi * d**2) * delta_doppler ** (3.0 + alpha)
+
+    ff = flux(flux_max, p, 1e15 * units.Hz, nu_c, nu_m, ndim = ndim)
+    events_list[case] = [t[0][0][radial_cell].value, np.sum(ff[0][0].value)]
+
+def calc_analytic_lightcurve(
+    fields:        dict, 
+    args:          argparse.ArgumentParser, 
+    events_list:   list,
+    mesh:          dict, 
+    dset:          dict, 
+    overplot:      bool=False, 
+    subplot:       bool=False, 
+    ax:            plt.Axes=None, 
+    case:          int=0
+) -> None:
+    """
+    Quick and dirty light curve from analytical approximations
+    
+    TODO: test Balndford-McKee 
+    Params:
+    fields:           dictionary of fluid variables
+    args:             argparse parser
+    events_list:      array in which events will be logged
+    mesh:             the system mesh 
+    dset:             the system setup dataset 
+    case:             The checkpoint case index
+    """
+    
+    beta                 = util.calc_beta(fields)
+    w                    = util.calc_lorentz_gamma(fields)
+    t_prime              = dset['time'] * time_scale
+    gamma_min, gamma_max = args.gamma_lims 
+    #================================================================
+    #                    HYDRO CONDITIONS
+    #================================================================
+    eps_b      = 0.1  # Electric field fraction of interbal energy 
+    eps_e      = 0.1  # Magnetic field fraction of internal energy
+    angular_samples = 10
+    r               = mesh['r']
+    ndim = 1 
+    if 'theta' in mesh:
+        nim = 2
+        theta = mesh['theta']
+    else:
+        theta = np.linspace(0.0, np.pi, angular_samples)
+        
+    if 'phi' in mesh:
+        ndim = 3
+        phi  = mesh['phi']
+    else:
+        phi = np.linspace(0.0, 2.0 * np.pi, angular_samples)
+    
+    thetta, phii, rr = np.meshgrid(theta, phi, r)
+    
+    rhat          = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector
+    p             = 2.5                                                                                   # electron particle number index   
+    rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)                                    # internal energy density
+    bfield        = calc_bfield_shock_other(rho_einternal, eps_b)                                            # magnetic field based on equipartition
+    ub            = bfield**2 / (8.0 * np.pi)                                                             # magnetic energy density
+    n_e           = fields['rho'] * w * rho_scale / const.m_p.cgs                                         # electron number density
+    
+    dt           = args.dt * time_scale                                  # step size between checkpoints
+    nu_g         = calc_gyration_frequecy(bfield)                        # gyration frequency
+    
+    # Calc cell volumes
+    if ndim == 1:
+        dvolume = util.calc_cell_volume1D(mesh['r']) * length_scale**3  
+    elif ndim == 2:
+        dvolume = util.calc_cell_volume2D(mesh['r'], mesh['theta']) * length_scale**3 
+
+    # Make up some gamma bins for the electrons
+    dgamma     = (gamma_max - gamma_min) / 100.0
+    gamma_bins = np.arange(gamma_min, gamma_max, dgamma)
+    #================================================================
+    #                 DIRECTIONAL SAMPLING RULES
+    #================================================================
+    r               = mesh['r']
+    angular_samples = 10
+    phi             = np.linspace(0.0, 2.0 * np.pi, angular_samples)
+    theta           = np.linspace(0.0, np.pi, angular_samples)
+    beta_vec        = beta * rhat
+    radial_cell     = beta.argmax()
+
+    # We choose a basis such that the observer lies along the direction nhat
+    # retarded time transformation
+    t  = t_prime - rr * length_scale / const.c.cgs
+    d  = (1.0 * units.Mpc).to(units.cm)
+    t += d / const.c.cgs 
+    
+    n_e               = fields['rho'] * w * rho_scale / const.m_p.cgs 
+    dvolume           = util.calc_cell_volume1D(mesh['r']) * length_scale**3
+    electron_number   = n_e * dvolume
+    alpha             = (p - 1.0)/2.0
+    delta_doppler     = calc_doppler_delta(w, beta_vector=beta_vec, n_hat=rhat)
+    nelectrons        = calc_nelectrons_at_gamma_e(electron_number, gamma_bins[-1], dgamma)
+    one_power         = calc_total_synch_power(w * gamma_bins[-1], ub, beta)
+    flux              = nelectrons * one_power / (4.0 * np.pi * d**2) * delta_doppler ** (3.0 + alpha)
+    events_list[case] = [t[0][0][radial_cell].value, np.sum(flux[0][0]).value]
+
 def log_events(
     fields:        dict, 
     args:          argparse.ArgumentParser, 
@@ -307,6 +530,9 @@ def log_events(
     #================================================================
     #                    HYDRO CONDITIONS
     #================================================================
+    p     = 2.5 # electron particle number index   
+    eps_b = 0.1
+    eps_e = 0.1
     # number of random angular samples if not fully 3D 
     angular_samples = 10
     r               = mesh['r']
@@ -326,9 +552,9 @@ def log_events(
     thetta, phii, rr = np.meshgrid(theta, phi, r)
     
     rhat          = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector
-    p             = 2.5                                                                                   # electron particle number index   
+
     rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)                                    # internal energy density
-    bfield        = calc_bfield_shock_other(rho_einternal, eb)                                            # magnetic field based on equipartition
+    bfield        = calc_bfield_shock_other(rho_einternal, eps_b)                                            # magnetic field based on equipartition
     ub            = bfield**2 / (8.0 * np.pi)                                                             # magnetic energy density
     n_e           = fields['rho'] * w * rho_scale / const.m_p.cgs                                         # electron number density
         
@@ -419,101 +645,6 @@ def log_events(
     print(f'angle after beaming: {np.rad2deg(beam_angle) * units.deg:.>32.2f}')
     print(f'angle b/w rhat and nhat: {np.rad2deg(beam_angle2):.>28.2f}')
     print(f'time in observer frame: {t[0][0][radial_cell]:.>31.2f}')
-
-def calc_analytic_lightcurve(
-    fields:        dict, 
-    args:          argparse.ArgumentParser, 
-    events_list:   list,
-    mesh:          dict, 
-    dset:          dict, 
-    overplot:      bool=False, 
-    subplot:       bool=False, 
-    ax:            plt.Axes=None, 
-    case:          int=0
-) -> None:
-    """
-    Quick and dirty light curve from analytical approximations
-    
-    TODO: test Balndford-McKee 
-    Params:
-    fields:           dictionary of fluid variables
-    args:             argparse parser
-    events_list:      array in which events will be logged
-    mesh:             the system mesh 
-    dset:             the system setup dataset 
-    case:             The checkpoint case index
-    """
-    
-    beta                 = util.calc_beta(fields)
-    w                    = util.calc_lorentz_gamma(fields)
-    t_prime              = dset['time'] * time_scale
-    gamma_min, gamma_max = args.gamma_lims 
-    #================================================================
-    #                    HYDRO CONDITIONS
-    #================================================================
-    eb      = 0.1  # Electric field fraction of interbal energy 
-    ee      = 0.1  # Magnetic field fraction of internal energy
-    angular_samples = 10
-    r               = mesh['r']
-    ndim = 1 
-    if 'theta' in mesh:
-        nim = 2
-        theta = mesh['theta']
-    else:
-        theta = np.linspace(0.0, np.pi, angular_samples)
-        
-    if 'phi' in mesh:
-        ndim = 3
-        phi  = mesh['phi']
-    else:
-        phi = np.linspace(0.0, 2.0 * np.pi, angular_samples)
-    
-    thetta, phii, rr = np.meshgrid(theta, phi, r)
-    
-    rhat          = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector
-    p             = 2.5                                                                                   # electron particle number index   
-    rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)                                    # internal energy density
-    bfield        = calc_bfield_shock_other(rho_einternal, eb)                                            # magnetic field based on equipartition
-    ub            = bfield**2 / (8.0 * np.pi)                                                             # magnetic energy density
-    n_e           = fields['rho'] * w * rho_scale / const.m_p.cgs                                         # electron number density
-    
-    dt           = args.dt * time_scale                                  # step size between checkpoints
-    nu_g         = calc_gyration_frequecy(bfield)                        # gyration frequency
-    
-    # Calc cell volumes
-    if ndim == 1:
-        dvolume = util.calc_cell_volume1D(mesh['r']) * length_scale**3  
-    elif ndim == 2:
-        dvolume = util.calc_cell_volume2D(mesh['r'], mesh['theta']) * length_scale**3 
-
-    # Make up some gamma bins for the electrons
-    dgamma     = (gamma_max - gamma_min) / 100.0
-    gamma_bins = np.arange(gamma_min, gamma_max, dgamma)
-    #================================================================
-    #                 DIRECTIONAL SAMPLING RULES
-    #================================================================
-    r               = mesh['r']
-    angular_samples = 10
-    phi             = np.linspace(0.0, 2.0 * np.pi, angular_samples)
-    theta           = np.linspace(0.0, np.pi, angular_samples)
-    beta_vec        = beta * rhat
-    radial_cell     = beta.argmax()
-
-    # We choose a basis such that the observer lies along the direction nhat
-    # retarded time transformation
-    t  = t_prime - rr * length_scale / const.c.cgs
-    d  = (1.0 * units.Mpc).to(units.cm)
-    t += d / const.c.cgs 
-    
-    n_e               = fields['rho'] * w * rho_scale / const.m_p.cgs 
-    dvolume           = util.calc_cell_volume1D(mesh['r']) * length_scale**3
-    electron_number   = n_e * dvolume
-    alpha             = (p - 1.0)/2.0
-    delta_doppler     = calc_doppler_delta(w, beta_vector=beta_vec, n_hat=rhat)
-    nelectrons        = calc_nelectrons_at_gamma_e(electron_number, gamma_bins[-1], dgamma)
-    one_power         = calc_total_synch_power(w * gamma_bins[-1], ub, beta)
-    flux              = nelectrons * one_power / (4.0 * np.pi * d**2) * delta_doppler ** (3.0 + alpha)
-    events_list[case] = [t[0][0][radial_cell].value, np.sum(flux[0][0]).value]
     
 def main():
     parser = argparse.ArgumentParser(description='Synchrotron Radiaition  Module')
@@ -542,9 +673,10 @@ def main():
     for idx, file in enumerate(files):
         if args.files2d:
             fields, setup, mesh = util.read_2d_file(args, file)
+            sari_piran_narayan_99(fields, args, events_list=events_list, mesh=mesh, dset=setup, case=idx)
         else:
             fields, setup, mesh = util.read_1d_file(file)
-            calc_analytic_lightcurve(fields, args, events_list=events_list, mesh=mesh, dset=setup, case=idx)
+            sari_piran_narayan_99(fields, args, events_list=events_list, mesh=mesh, dset=setup, case=idx)
     
     distance = (1.0 * units.Mpc).to(units.cm)
     t_travel = distance / const.c.cgs

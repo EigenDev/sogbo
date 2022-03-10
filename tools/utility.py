@@ -123,6 +123,7 @@ def calc_bfield_shock(fields: dict, eb: float = 0.1) -> np.ndarray:
     W = calc_lorentz_gamma(fields)
     comoving_density = fields['rho'] * W *  rho_scale
     return (32 * np.pi *  eb * comoving_density)**0.5 * W * const.c.cgs 
+
 def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dict,dict]:
     setup  = {}
     fields = {}
@@ -192,24 +193,30 @@ def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dic
         chi = chi.reshape(ny, nx)
         
         
-        if args.forder:
-            rho = rho[1:-1, 1: -1]
-            v1  = v1 [1:-1, 1: -1]
-            v2  = v2 [1:-1, 1: -1]
-            p   = p  [1:-1, 1: -1]
-            chi = chi[1:-1, 1: -1]
-            xactive = nx - 2
-            yactive = ny - 2
-            setup['xactive'] = xactive
-            setup['yactive'] = yactive
-        else:
-            rho = rho[2:-2, 2: -2]
-            v1  = v1 [2:-2, 2: -2]
-            v2  = v2 [2:-2, 2: -2]
-            p   = p  [2:-2, 2: -2]
-            chi = chi[2:-2, 2: -2]
-            xactive = nx - 4
-            yactive = ny - 4
+        try:
+            if args.forder:
+                rho = rho[1:-1, 1: -1]
+                v1  = v1 [1:-1, 1: -1]
+                v2  = v2 [1:-1, 1: -1]
+                p   = p  [1:-1, 1: -1]
+                chi = chi[1:-1, 1: -1]
+                xactive = nx - 2
+                yactive = ny - 2
+                setup['xactive'] = xactive
+                setup['yactive'] = yactive
+            else:
+                rho = rho[2:-2, 2: -2]
+                v1  = v1 [2:-2, 2: -2]
+                v2  = v2 [2:-2, 2: -2]
+                p   = p  [2:-2, 2: -2]
+                chi = chi[2:-2, 2: -2]
+                xactive = nx - 4
+                yactive = ny - 4
+                setup['xactive'] = xactive
+                setup['yactive'] = yactive
+        except:
+            xactive = nx
+            yactive = ny
             setup['xactive'] = xactive
             setup['yactive'] = yactive
         
@@ -237,6 +244,7 @@ def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dic
         fields['chi']          = chi
         fields['gamma_beta']   = W*beta
         fields['ad_gamma']     = gamma
+        setup['ad_gamma']      = gamma
         setup['is_cartesian']  = is_cartesian
         
         
@@ -284,7 +292,7 @@ def read_1d_file(filename: str) -> dict:
         v   = v  [2:-2]
         p   = p  [2:-2]
         xactive = nx - 4
-        
+
         W    = 1/np.sqrt(1 - v**2)
         
         a    = (4 * const.sigma_sb.cgs / c)
