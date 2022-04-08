@@ -90,6 +90,8 @@ def main():
     length_scale = ((e0 * e_scale / (rho0 * rho_scale * c**2))**(1/3)).to(units.cm)
     time_scale   = length_scale / const.c.cgs 
     
+    # print(length_scale)
+    # zzz = input('')
     tphysical = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * (e0 / rho0)**(1/3)
     gamma_shock0  = calc_shock_lorentz_gamma(ell, t, args.k)
     gamma_max0    = calc_fluid_gamma_max(ell, t, args.k)
@@ -137,6 +139,7 @@ def main():
             file_name = f'{data_dir}{args.nzones}.chkpt.{i:03}.h5'
             with h5py.File(f'{file_name}', 'w') as f:
                 print(f'[Writing to {file_name}]')
+               
                 beta = (1.0 - (gamma_fluid)**(-2.0))**0.5
                 sim_info = f.create_dataset('sim_info', dtype='i')
                 f.create_dataset('rho', data=rho)

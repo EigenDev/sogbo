@@ -40,6 +40,21 @@ def calc_theta_verticies(theta: np.ndarray) -> np.ndarray:
     tvertices = np.insert(tvertices, tvertices.shape[0], theta[-1], axis=0)
     return tvertices 
 
+def calc_solid_angle3D(theta: np.ndarray, phi: np.ndarray) -> np.ndarray:
+    tvertices = 0.5 * (theta[:, 1:] + theta[:, :-1])
+    tvertices = np.insert(tvertices, 0, theta[:, 0], axis=1)
+    tvertices = np.insert(tvertices, tvertices.shape[1], theta[:, -1], axis=1)
+    tcenter   = 0.5 * (tvertices[:,1:] + tvertices[:,:-1])
+    dth       = tvertices[:,1: ] - tvertices[:, :-1]
+    
+    phi_vertices = 0.5 * (phi[1:] + phi[:-1])
+    phi_vertices = np.insert(phi_vertices,  0, phi[0], axis=0)
+    phi_vertices = np.insert(phi_vertices, phi_vertices.shape[0], phi[-1], axis=0)
+    dphi         = phi_vertices[1: ] - phi_vertices[:-1]
+    
+    return np.sin(tcenter) * dth * dphi
+    
+    
 def calc_cell_volume1D(r: np.ndarray) -> np.ndarray:
     rvertices = np.sqrt(r[1:] * r[:-1])
     rvertices = np.insert(rvertices,  0, r[0])
@@ -287,12 +302,13 @@ def read_1d_file(filename: str) -> dict:
             is_linspace = ds.attrs['linspace']
         except:
             is_linspace = False
-            
-        rho = rho[2:-2]
-        v   = v  [2:-2]
-        p   = p  [2:-2]
-        xactive = nx - 4
-
+        
+        
+        # rho = rho[2:-2]
+        # v   = v  [2:-2]
+        # p   = p  [2:-2]
+        # xactive = nx - 4
+        xactive = nx
         W    = 1/np.sqrt(1 - v**2)
         
         a    = (4 * const.sigma_sb.cgs / c)
@@ -354,10 +370,16 @@ def prims2var(fields: dict, var: str) -> np.ndarray:
         # Specific enthalpy
         return h - 1.0  
     
-def find_nearest(arr: list, val: float) -> Union[int, float]:
-    arr = np.asarray(arr)
-    idx = np.argmin(np.abs(arr - val))
-    return idx, arr[idx]
+def find_nearest(arr: list, val: float) -> int:
+    """ Return nearest index to val in array"""
+    arr = np.asanyarray(arr)
+    if arr.ndim == 1:
+        idx = np.argmin(np.abs(arr - val))
+        return idx, arr[idx]
+    else:
+        x   = np.abs(arr - val)
+        idx = np.where(x == x.min())
+        return idx 
     
 def fill_below_intersec(x: np.ndarray, y: np.ndarray, constraint: float, color: float) -> None:
     ind = find_nearest(y, constraint)[0]
