@@ -81,16 +81,20 @@ def main():
     ell    = (e0/rho0)**(1/3)  # inital length scale
     t      = args.t0           # initial simulation time
     
-    tphysical = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell
+    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell
     gamma_shock0  = calc_shock_lorentz_gamma(ell, t, args.k)
-    gamma_max0    = calc_fluid_gamma_max(ell, t, args.k)
     r0            = calc_shock_radius(gamma_shock0, t, args.bmk_m)
-    theta         = np.linspace(0, np.pi, args.npolar)
-    dtheta        = (np.pi - 0.0)/args.npolar
-    nr            = int(1 + np.log10(args.rmax/r0)/dtheta)
-    r             = np.geomspace(r0, args.rmax, nr)
+    # grid constraints
+    theta_max     = np.pi / 2
+    theta_min     = 0.0
+    theta         = np.linspace(0, theta_max, args.npolar)
+    dtheta        = (theta_max - theta_min) / args.npolar
+    nr            = int(1 + np.log10(tphysical/r0)/dtheta)
+    times         = np.geomspace(t, tphysical, nr)
+    gamma_shock   = calc_shock_lorentz_gamma(ell, times, args.k)
+    r             = calc_shock_radius(gamma_shock, times, args.bmk_m)
+    rr, thetta    = np.meshgrid(r, theta)
     
-    rr, thetta = np.meshgrid(r, theta)
     # Initial arrays
     theta_j_idx = find_nearest(theta, args.theta_j)[0]
     gamma_fluid = np.ones_like(rr)
@@ -101,36 +105,29 @@ def main():
     gamma_fluid[theta.size - theta_j_idx:, 0] = gamma_shock0 / (2.0**0.5)
     
     interval = 0.0
-    dt       = (args.rmax - r0)/ nr 
-    colors   = plt.cm.viridis(np.linspace(0.1, 0.8), int(args.tend/dt))
     fig, ax  = plt.subplots(1, 1, figsize=(4,4))
     
-    cidx  = 0
     i = 0
-    times = []
     ells  = []
-    rshock_idx = find_nearest(r, r0)[0]
-    while t < tphysical:
-        gamma_shock = calc_shock_lorentz_gamma(ell, t, args.k)
+    t_last = 0.0
+    for tidx, t in enumerate(times):
         # Solution only physical when gamma_shock**2/2 >= chi
-        chi_critical = gamma_shock**2 / 2 
+        chi_critical = 0.5 * gamma_shock[tidx]**2
         chi          = calc_chi(ell, r, t, args.bmk_m, args.k)
         
-        # set chi wherever the shock is to be 1.0
-        chi[rshock_idx] = 1.0
         smask        = (chi >= 1.0) & (chi <= chi_critical) 
-        
         # Northern jet
-        rho[:theta_j_idx,   smask] = calc_rho(gamma_shock, chi[smask], rho0, args.k)
-        gamma_fluid[:theta_j_idx, smask] = calc_gamma_fluid(gamma_shock, chi[smask])
-        pressure[:theta_j_idx, smask] = calc_pressure(gamma_shock, chi[smask], rho0, args.k)
+        rho[:theta_j_idx,   smask]       = calc_rho(gamma_shock[smask], chi[smask], rho0, args.k)
+        gamma_fluid[:theta_j_idx, smask] = calc_gamma_fluid(gamma_shock[smask], chi[smask])
+        pressure[:theta_j_idx, smask]    = calc_pressure(gamma_shock[smask], chi[smask], rho0, args.k)
         
         # Southern jet
-        rho[theta.size   - theta_j_idx:, smask] = calc_rho(gamma_shock, chi[smask], rho0, args.k)
-        gamma_fluid[theta.size - theta_j_idx:, smask] = calc_gamma_fluid(gamma_shock, chi[smask])
-        pressure[theta.size - theta_j_idx:, smask] = calc_pressure(gamma_shock, chi[smask], rho0, args.k)
+        rho[theta.size   - theta_j_idx:, smask]       = calc_rho(gamma_shock[smask], chi[smask], rho0, args.k)
+        gamma_fluid[theta.size - theta_j_idx:, smask] = calc_gamma_fluid(gamma_shock[smask], chi[smask])
+        pressure[theta.size - theta_j_idx:, smask]    = calc_pressure(gamma_shock[smask], chi[smask], rho0, args.k)
         
-        if t > interval:
+        gamma_fluid[gamma_fluid < 1.0] = 1.0
+        if (t - t_last) >= interval:
             n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
             file_name = f'{data_dir}{args.npolar}.chkpt.{i:03}.h5'
             with h5py.File(f'{file_name}', 'w') as f:
@@ -139,16 +136,17 @@ def main():
                 beta1 = beta 
                 beta2 = 0 * beta 
                 sim_info = f.create_dataset('sim_info', dtype='i')
-                f.create_dataset('rho', data=rho)
-                f.create_dataset('p', data=pressure)
-                f.create_dataset('v1', data=beta1)
-                f.create_dataset('v2', data=beta2)
+                f.create_dataset('rho',   data=rho)
+                f.create_dataset('p',     data=pressure)
+                f.create_dataset('v1',    data=beta1)
+                f.create_dataset('v2',    data=beta2)
+                f.create_dataset('radii', data=r)
                 sim_info.attrs['current_time'] = t 
                 sim_info.attrs['ad_gamma'] = 4.0 / 3.0 
                 sim_info.attrs['x1min'] = r0 
                 sim_info.attrs['x1max'] = args.rmax 
-                sim_info.attrs['x2min'] = 0
-                sim_info.attrs['x2max'] = np.pi
+                sim_info.attrs['x2min'] = theta_min
+                sim_info.attrs['x2max'] = theta_max
                 sim_info.attrs['nx']    = nr 
                 sim_info.attrs['ny']    = args.npolar
                 sim_info.attrs['linspace'] = False 
@@ -160,25 +158,22 @@ def main():
                 ax.semilogx(r, rho[args.tidx], color='black')
             elif args.var == 'pressure':
                 ax.semilogx(r, pressure[args.tidx], color='black')
-            interval += args.tinterval 
+            t_last = t + args.tinterval 
             i += 1
             
         ells  += [ell]
-        times += [t]
-        t     += dt
-        upstream   = np.min(np.where(chi < 1.0))
-        ell        = (e0/rho[0,upstream])**(1/3)
-        rshock     = calc_shock_radius(gamma_shock, t, args.bmk_m)
-        rshock_idx = find_nearest(r, rshock)[0]
+        # upstream   = np.min(np.where(chi < 1.0))
+        # ell        = (e0/rho[0,upstream])**(1/3)
+        # rshock     = calc_shock_radius(gamma_shock, t, args.bmk_m)
+        # rshock_idx = find_nearest(r, rshock)[0]
 
     if args.var == 'gamma_beta':
         # Compare the t^-3/2 scaling with what was calculated
         ells  = np.asanyarray(ells)
-        times = np.asanyarray(times)
-        rscaling    = np.geomspace(r0, args.rmax, times.size)
-        gamma_shock_scaling = calc_shock_lorentz_gamma(ells, times, args.k) / 2.0**0.5
+        gamma_shock_scaling = gamma_shock / 2.0**0.5
+        gamma_shock_scaling[gamma_shock_scaling < 1.0] = 1.0
         gb_scaling  = (gamma_shock_scaling**2 - 1.0)**0.5
-        ax.semilogx(rscaling, gb_scaling, linestyle='--', label=r'$\Gamma \propto t^{-3/2}$')
+        ax.semilogx(times, gb_scaling, linestyle='--', label=r'$\Gamma \propto t^{-3/2}$')
         ax.legend()
     
     if args.var == 'rho':

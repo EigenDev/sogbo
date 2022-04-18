@@ -71,8 +71,26 @@ def calc_cell_volume2D(r: np.ndarray, theta: np.ndarray) -> np.ndarray:
     rvertices = np.insert(rvertices,  0, r[:, 0], axis=1)
     rvertices = np.insert(rvertices, rvertices.shape[1], r[:, -1], axis=1)
     dr        = rvertices[:, 1:] - rvertices[:, :-1]
-    
     return (2.0 * np.pi *  (1./3.) * (rvertices[:, 1:]**3 - rvertices[:, :-1]**3) *  dcos)
+
+def calc_cell_volume3D(r: np.ndarray, theta: np.ndarray, phi: np.ndarray) -> np.ndarray:
+    pvertices = 0.5 * (phi[1:] + phi[:-1])
+    pvertices = np.insert(pvertices, 0, phi[0], axis=0)
+    pvertices = np.insert(pvertices, pvertices.shape[0], phi[-1], axis=0)
+    dphi      = pvertices[1:] - pvertices[:-1]
+    
+    tvertices = 0.5 * (theta[:,1:] + theta[:,:-1])
+    tvertices = np.insert(tvertices, 0, theta[:,0], axis=1)
+    tvertices = np.insert(tvertices, tvertices.shape[1], theta[:,-1], axis=1)
+    dcos      = np.cos(tvertices[:,:-1]) - np.cos(tvertices[:,1:])
+    
+    rvertices = np.sqrt(r[:,:, 1:] * r[:,:, :-1])
+    rvertices = np.insert(rvertices,  0, r[:,:, 0], axis=2)
+    rvertices = np.insert(rvertices, rvertices.shape[2], r[:,:, -1], axis=2)
+    dr        = rvertices[:,:, 1:] - rvertices[:,:, :-1]
+    
+    dV = (1.0/3.0) * (rvertices[:,:, 1:]**3 - rvertices[:,:, :-1]**3) * dphi * dcos
+    return dV
 
 def calc_enthalpy(fields: dict) -> np.ndarray:
     return 1.0 + fields['p']*fields['ad_gamma'] / (fields['rho'] * (fields['ad_gamma'] - 1.0))
@@ -304,6 +322,10 @@ def read_1d_file(filename: str) -> dict:
             is_linspace = False
         
         
+        try:
+            radii = hf.get('radii')[:]
+        except:
+            pass 
         # rho = rho[2:-2]
         # v   = v  [2:-2]
         # p   = p  [2:-2]
@@ -318,11 +340,14 @@ def read_1d_file(filename: str) -> dict:
         
         h = 1.0 + 4/3 * p / (rho * (4/3 - 1))
         
-        if is_linspace:
-            mesh['r'] = np.linspace(x1min, x1max, xactive)
+        if 'radii' in locals():
+            mesh['r'] = radii 
         else:
-            mesh['r'] = np.logspace(np.log10(x1min), np.log10(x1max), xactive)
-            
+            if is_linspace:
+                mesh['r'] = np.linspace(x1min, x1max, xactive)
+            else:
+                mesh['r'] = np.logspace(np.log10(x1min), np.log10(x1max), xactive)
+                
         setups['ad_gamma']    = 4./3.
         setups['time']        = t
         setups['linspace']    = is_linspace
