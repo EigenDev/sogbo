@@ -16,18 +16,18 @@ c          = const.c.cgs
 e_scale    = 1e53 * units.erg 
 rho_scale  = 1.0 * const.m_p.cgs / units.cm**3 
 
-def calc_shock_lorentz_gamma(l: float, t: float, k: float) -> float:
+def calc_gamma_shock(l: float, t: float, k: float) -> float:
     """Calc shock lorentz factor"""
     return ((17.0 - 4.0 * k) / 8.0 / np.pi)**0.5 * (l / t)**(3.0 / 2.0)
 
 def calc_fluid_gamma_max(l:float, t: float, k: float) -> float:
     """Calc maximum lorentz factor of fluid"""
-    gamma_shock = calc_shock_lorentz_gamma(l, t, k)
+    gamma_shock = calc_gamma_shock(l, t, k)
     return gamma_shock / 2.0**0.5
     
 def calc_chi(l:float, r: float, t: float, m: float, k: float) -> float:
     """Similarity variable as function of time"""
-    gamma_shock = calc_shock_lorentz_gamma(l, t, k)
+    gamma_shock = calc_gamma_shock(l, t, k)
     return (1.0 + 2.0 * (m + 1)* gamma_shock**2)*(1.0 - r / t)
 
 def calc_gamma_fluid(gamma_shock: float, chi: float) -> float:
@@ -91,7 +91,7 @@ def main():
     
     tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell
     times         = np.geomspace(t, tphysical, args.nzones)
-    gamma_shock   = calc_shock_lorentz_gamma(ell, times, args.k)
+    gamma_shock   = calc_gamma_shock(ell, times, args.k)
     r             = calc_shock_radius(gamma_shock, times, args.bmk_m)
     r0            = r[0]
     gamma_max0    = calc_fluid_gamma_max(ell, t, args.k)
@@ -100,7 +100,7 @@ def main():
     # Initial arrays
     gamma_fluid = np.ones_like(r)
     rho         = np.ones_like(r) * rho0 * (r/r[0])**(-args.k)
-    pressure    = rho * 1e-6
+    pressure    = rho * 1e-10
     
     gamma_fluid[0] = gamma_shock[0] / 2.0**0.5
     
@@ -112,7 +112,6 @@ def main():
     i = 0
     t_last = 0.0
     
-    print(tphysical)
     for tidx, t in enumerate(times):  
         # Solution only physical when gamma_shock**2/2 >= chi
         chi_critical = 0.5 * gamma_shock[tidx]**2 
