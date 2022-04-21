@@ -89,7 +89,6 @@ def main():
     length_scale = ((e0 * e_scale / (rho0 * rho_scale * c**2))**(1/3)).to(units.cm)
     time_scale   = length_scale / const.c.cgs 
     
-    print(ell)
     tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell
     times         = np.geomspace(t, tphysical, args.nzones)
     gamma_shock   = calc_shock_lorentz_gamma(ell, times, args.k)
@@ -98,8 +97,6 @@ def main():
     gamma_max0    = calc_fluid_gamma_max(ell, t, args.k)
     
     ell = (e0 / rho0 / r0**args.k)**(1.0 / (3.0 - args.k))
-    print(ell)
-    zzz = input('')
     # Initial arrays
     gamma_fluid = np.ones_like(r)
     rho         = np.ones_like(r) * rho0 * (r/r[0])**(-args.k)
