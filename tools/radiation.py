@@ -711,7 +711,11 @@ def main():
    
     tbound1    = storage['first_light']
     tbound2    = time_bins[-2]
-    ax.set_title('Light curve for spherical BMK Test')
+    if args.dim == 1:
+        ax.set_title('Light curve for spherical BMK Test')
+    else:
+        ax.set_title('Light curve for conical BMK Test')
+        
     ax.set_xlim(tbound1.value, tbound2.value)
     # ax.set_ylim(1e-17, 1e4)
     ax.set_yscale('log')
