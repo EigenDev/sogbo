@@ -225,6 +225,10 @@ def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dic
         p   = p.reshape(ny, nx)
         chi = chi.reshape(ny, nx)
         
+        try:
+            radii = hf.get('radii')[:]
+        except:
+            pass 
         
         try:
             if args.forder:
@@ -253,6 +257,7 @@ def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dic
             setup['xactive'] = xactive
             setup['yactive'] = yactive
         
+        
         if is_linspace:
             setup['x1'] = np.linspace(x1min, x1max, xactive)
             setup['x2'] = np.linspace(x2min, x2max, yactive)
@@ -260,6 +265,13 @@ def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dic
             setup['x1'] = np.logspace(np.log10(x1min), np.log10(x1max), xactive)
             setup['x2'] = np.linspace(x2min, x2max, yactive)
         
+        if 'radii' in locals():
+            setup['x1'] = radii 
+        else:
+            if is_linspace:
+                setup['x1'] = np.linspace(x1min, x1max, xactive)
+            else:
+                setup['x1'] = np.logspace(np.log10(x1min), np.log10(x1max), xactive)
         if coord_sysem == 'cartesian':
             is_cartesian = True
         
@@ -289,10 +301,10 @@ def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dic
         mesh['yy'] = yy
     else:      
         rr, tt = np.meshgrid(setup['x1'], setup['x2'])
-        mesh['theta'] = tt 
-        mesh['rr']    = rr
-        mesh['r']     = setup['x1']
-        mesh['th']    = setup['x2']
+        mesh['thetta'] = tt 
+        mesh['rr']     = rr
+        mesh['r']      = setup['x1']
+        mesh['theta']  = setup['x2']
         
     return fields, setup, mesh 
 

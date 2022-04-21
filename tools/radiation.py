@@ -291,22 +291,8 @@ def calc_gamma_min(eps_e: float,e_thermal: float, n: float, p: float) -> float:
     """
     return eps_e * (p - 2.0) / (p - 1.0) * e_thermal / (n * const.m_e.cgs * const.c.cgs**2)
 
-def sari_piran_narayan_99(
-    fields:         dict, 
-    args:           argparse.ArgumentParser, 
-    frequency:      float,
-    time_bins:      np.ndarray,
-    flux_array:     np.ndarray,
-    mesh:           dict, 
-    dset:           dict, 
-    storage:           dict,
-    overplot:       bool=False, 
-    subplot:        bool=False, 
-    ax:             plt.Axes=None, 
-    case:           int=0
-) -> None:
-    
-    def flux(
+def flux(
+        mesh:     dict,
         flux_max: float, 
         p:        float,
         nu:       float, 
@@ -318,48 +304,101 @@ def sari_piran_narayan_99(
         Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
         ---------------------------------------
         """
-        fluxes = np.zeros_like(flux_max)
+        slow_cool    = nu_c > nu_m
+        fast_cool    = nu_c < nu_m
+        
+        fast_break1  = nu_c > nu 
+        fast_break2  = nu   > nu_m
+        fast_mask1   = fast_cool & fast_break1 
+        fast_mask2   = fast_cool & fast_break2
+        fast_mask3   = fast_cool & (fast_break1 == False) & (fast_break2 == False)
+        
+        slow_break1  = nu_m > nu 
+        slow_break2  = nu   > nu_c
+        slow_mask1   = slow_cool & slow_break1
+        slow_mask2   = slow_cool & slow_break2
+        slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
         if ndim == 1:
-            for ridx in range(r.size):
-                nu_crit = nu_c[ridx]
-                nu_min  = nu_m[ridx]
-                cooling = 'slow' if nu_crit > nu_min else 'fast'
-                if cooling == 'fast':
-                    if nu_crit > nu:
-                        fluxes[:, :, ridx]  = (nu/nu_crit)**(1.0/3.0)*flux_max[:, :, ridx]
-                    elif nu > nu_min:
-                         fluxes[:, :, ridx] = (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)*flux_max[:, :, ridx]
-                    else:
-                        fluxes[:, :, ridx]  = (nu/nu_crit)**(-0.5)*flux_max[:, :, ridx] 
-                else:
-                    if nu_min > nu:
-                        fluxes[:, :, ridx] = (nu/nu_min)**(1.0/3.0)*flux_max[:, :, ridx]
-                    elif nu > nu_crit:
-                        fluxes[:, :, ridx] = (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p)*flux_max[:, :, ridx] 
-                    else:
-                        fluxes[:, :, ridx] = (nu/nu_min) **(-0.5*(p-1.0))*flux_max[:, :, ridx]
+            flux_max[:, :, slow_mask1] *= (nu / nu_m[slow_mask1])**(1.0 / 3.0)  
+            flux_max[:, :, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu / nu_c[slow_mask2])**(-0.5 * p)
+            flux_max[:, :, slow_mask3] *= (nu / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            
+            flux_max[:, :, fast_mask1] *= (nu / nu_c[fast_mask1])**(1.0 / 3.0)
+            flux_max[:, :, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu / nu_m[fast_mask2])**(-0.5 * p)
+            flux_max[:, :, fast_mask3] *= (nu / nu_c[fast_mask3])**(-0.5)
+            
+            # print("a")
+            # r = mesh['r']
+            # for ridx in range(r.size):
+            #     nu_crit = nu_c[ridx]
+            #     nu_min  = nu_m[ridx]
+            #     cooling = 'slow' if nu_crit > nu_min else 'fast'
+            #     if cooling == 'fast':
+            #         if nu_crit > nu:
+            #             flux_max[:, :, ridx]  *= (nu/nu_crit)**(1.0/3.0)
+            #         elif nu > nu_min:
+            #              flux_max[:, :, ridx] *= (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)
+            #         else:
+            #             flux_max[:, :, ridx]  *= (nu/nu_crit)**(-0.5) 
+            #     else:
+            #         if nu_min > nu:
+            #             flux_max[:, :, ridx] *= (nu/nu_min)**(1.0/3.0)
+            #         elif nu > nu_crit:
+            #             flux_max[:, :, ridx] *= (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p) 
+            #         else:
+            #             flux_max[:, :, ridx] *= (nu/nu_min) **(-0.5*(p-1.0))
+            # print(flux_max[0])
+            # print("b")
+            # zzz = input('')
         else:
-            for tidx in range(theta.size):
-                for ridx in range(r.size):
-                    nu_crit = nu_c[tidx, ridx]
-                    nu_min  = nu_m[tidx, ridx]
-                    cooling = 'slow' if nu_crit > nu_min else 'fast'
-
-                    if cooling == 'slow':
-                        if nu_min > nu:
-                            fluxes[:, tidx, ridx] = (nu/nu_min)**(1/3)*flux_max[:, tidx, ridx]
-                        elif (nu < nu_crit) and (nu > nu_min):
-                            fluxes[:, tidx, ridx] = (nu/nu_min)**(-(p-1)/2)*flux_max[:, tidx, ridx]
-                        elif nu > nu_crit:
-                            fluxes[:, tidx, ridx] = (nu_crit/nu_min)**(-(p-1)/2)*(nu/nu_crit)**(-p/2)*flux_max[:, tidx, ridx] 
-                    else:
-                        if nu_crit > nu:
-                            fluxes[:, tidx, ridx] = (nu/nu_crit)**(1/3)*flux_max[:, tidx, ridx]
-                        elif (nu < nu_min) and (nu > nu_crit):
-                            fluxes[:, tidx, ridx] = (nu/nu_crit) **(-1/2)*flux_max[:, tidx, ridx]
-                        elif nu > nu_min:
-                            fluxes[:, tidx, ridx] = (nu_min/nu_crit)**(-1/2)*(nu/nu_min)**(-p/2)*flux_max[:, tidx, ridx] 
-        return fluxes 
+            flux_max[:, slow_mask1] *= (nu / nu_m[slow_mask1])**(1.0 / 3.0)  
+            flux_max[:, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu / nu_c[slow_mask2])**(-0.5 * p)
+            flux_max[:, slow_mask3] *= (nu / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            
+            flux_max[:, fast_mask1] *= (nu / nu_c[fast_mask1])**(1.0 / 3.0)
+            flux_max[:, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu / nu_m[fast_mask2])**(-0.5 * p)
+            flux_max[:, fast_mask3] *= (nu / nu_c[fast_mask3])**(-0.5)
+            # print("a")
+            # theta        = mesh['theta']
+            # r            = mesh['r']
+            # for tidx in range(theta.size):
+            #     for ridx in range(r.size):
+            #         nu_crit = nu_c[tidx, ridx]
+            #         nu_min  = nu_m[tidx, ridx]
+            #         cooling = 'slow' if nu_crit > nu_min else 'fast'
+            #         zone = tidx, ridx
+            #         if cooling == 'fast':
+            #             if nu_crit > nu:
+            #                 flux_max[:, zone]  *= (nu/nu_crit)**(1.0/3.0)
+            #             elif nu > nu_min:
+            #                 flux_max[:, zone]  *= (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)
+            #             else:
+            #                 flux_max[:, zone]  *= (nu/nu_crit)**(-0.5) 
+            #         else:
+            #             if nu_min > nu:
+            #                 flux_max[:, zone] *= (nu/nu_min)**(1.0/3.0)
+            #             elif nu > nu_crit:
+            #                 flux_max[:, zone] *= (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p) 
+            #             else:
+            #                 flux_max[:, zone] *= (nu/nu_min) **(-0.5*(p-1.0))
+            # print(flux_max[0])
+            # print("b")
+            # zzz = input('')
+        return flux_max 
+    
+def sari_piran_narayan_99(
+    fields:         dict, 
+    args:           argparse.ArgumentParser, 
+    time_bins:      np.ndarray,
+    flux_array:     np.ndarray,
+    mesh:           dict, 
+    dset:           dict, 
+    storage:           dict,
+    overplot:       bool=False, 
+    subplot:        bool=False, 
+    ax:             plt.Axes=None, 
+    case:           int=0
+) -> None:
     
     beta       = util.calc_beta(fields)
     w          = util.calc_lorentz_gamma(fields)
@@ -382,18 +421,17 @@ def sari_piran_narayan_99(
     gamma_min  = calc_gamma_min(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
     gamma_crit = calc_critical_lorentz(bfield, t_emitter)                # Critical Lorentz factor of electrons
     
-    r       = mesh['r']
-    d       = 1e28 * units.cm
-    dt_obs  = t_prime - storage['t_prime'] if case != 0 else dt # time since observation n-1
-
+    r         = mesh['r']
+    d         = 1e28 * units.cm
+    dt_chkpt  = t_prime - storage['t_prime'] if case != 0 else dt # time since observation n-1
     if case == 0:
         ndim = 1 
         if 'theta' in mesh:
             ndim += 1
-            theta = mesh['th']
+            theta = mesh['theta']
         else:
             dlogr         = np.log10(r.max()/r.min())/(r.size - 1)
-            thets_max     = np.pi / 2
+            thets_max     = np.pi / 2 if not args.full_sphere else np.pi
             theta_samples = int(thets_max / dlogr + 1)
             theta         = np.linspace(0.0, thets_max, theta_samples)
             
@@ -405,6 +443,7 @@ def sari_piran_narayan_99(
             phi = np.linspace(0.0, 2.0 * np.pi, phi_samples)
 
         thetta, phii, rr = np.meshgrid(theta, phi, r)
+
         # Calc cell volumes
         dvolume = util.calc_cell_volume3D(rr, thetta, phii) * length_scale ** 3
         rhat    = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector                                                                                 # electron particle number index   
@@ -420,12 +459,13 @@ def sari_piran_narayan_99(
         storage['dvolume'] = dvolume
         t_obs   = t_prime - rr * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
     else:
-        t_obs   = storage['t_obs'] + dt_obs
+        t_obs   = storage['t_obs'] + dt_chkpt
 
     beta_vec = beta * storage['rhat']
     obs_hat  = storage['obs_hat']
     ndim     = storage['ndim']
     dvolume  = storage['dvolume']
+    
     # Calculate the maximum flux based on the average bolometric power per electron
     nu_c              = calc_nu(gamma_crit, nu_g)                                   # Critical frequency
     nu_m              = calc_nu(gamma_min, nu_g)                                    # Minimum frequency
@@ -435,32 +475,26 @@ def sari_piran_narayan_99(
     total_power       = storage['dvolume'] * emissivity                             # Total emitted power per unit frequency in each cell volume
     flux_max          = total_power * delta_doppler ** (3.0 + alpha)                # Maximum flux 
     
-    ff = flux(flux_max, p, frequency * units.Hz, nu_c, nu_m, ndim = ndim)
-    ff = dt / dt_obs * (ff / (4.0 * np.pi * d **2)).to(units.Jy)
-    
-    if case == 0:
-        storage['t_init'] = t_prime
-        
+    # loop through the given frequencies and put them in their respective locations
     storage['t_obs']     = t_obs
     storage['t_prime']   = t_prime
+    dt_obs               = time_bins[1:] - time_bins[:-1]
+    dt_day               = dt.to(units.day)
+    t_obs                = t_obs.to(units.day)
     
-    t_obs = t_obs.to(units.day)
-    # tr = ff[0][0].argmax()
-    # print(f"max flux along line of sight: {ff[0][0][tr]:.>30.2e}")
-    # print(f"observer time of max flux along line of sight: {t_obs[0][0][tr]:.>13.2e}")
-    # zzz = input('')
-    if case == 0:
-        obs_theta_idx          = util.find_nearest(theta, args.theta_obs)[0]
-        tr                     = ff[0][obs_theta_idx].argmax() 
-        storage['first_light'] = t_obs[0][obs_theta_idx][0]
+    for freq in args.nu:
+        ff = flux(mesh, flux_max, p, freq * units.Hz, nu_c, nu_m, ndim = ndim)
+        ff = (ff / (4.0 * np.pi * d **2)).to(units.Jy)
         
-    # place the fluxes in the appropriate time bins
-    for idx, t_bin_edge in enumerate(time_bins):
-        flux_array[idx] += ff[t_obs < t_bin_edge].value.sum()
-        # if idx < 10:
-        #     print(flux_array[idx], t_bin_edge)
-        ff[t_obs < t_bin_edge] = 0.0
-    # zzz = input('')    
+        if case == 0:
+            obs_theta_idx          = util.find_nearest(theta, args.theta_obs)[0]
+            tr                     = ff[0][obs_theta_idx].argmax() 
+            storage['first_light'] = t_obs[0][obs_theta_idx][0]
+        # place the fluxes in the appropriate time bins
+        for idx, t1 in enumerate(time_bins[:-1]):
+            t2 = time_bins[idx + 1]
+            flux_array[freq][idx] += dt_day / dt_obs[idx] * ff[(t_obs > t1) & (t_obs < t2)].sum()
+        
 def log_events(
     fields:        dict, 
     args:          argparse.ArgumentParser, 
@@ -618,6 +652,7 @@ def main():
     parser.add_argument('--gamma_lims', dest='gamma_lims', help='lorentz gamma limits for electron distro', default=[1.0,100.0], nargs='+', type=float)
     parser.add_argument('--2d', help='Set if files are 2d checkpts', dest='files2d', default=False, action='store_true')
     parser.add_argument('--3d', help='Set if files are 3d checkpts', dest='files3d', default=False, action='store_true')
+    parser.add_argument('--full_sphere', help='Set if want to account for radiaition over whole sphere. Default is half', default=False, action='store_true')
     parser.add_argument('--save', help='file name to save fig', dest='save', default=None, type=str)
     parser.add_argument('--tex', help='true if want latex rendering on figs', default=False, action='store_true')
     parser.add_argument('--ntbins', dest='ntbins', type=int, help='number of time bins', default=50)
@@ -638,42 +673,52 @@ def main():
     else:
         files = args.files 
     
+    if args.files2d:
+        file_reader = util.read_2d_file
+        func_args0  = [args]
+    else:
+        file_reader = util.read_1d_file
+        func_args0  = []
+        
     freqs         = np.array(args.nu) * units.Hz
     fig, ax       = plt.subplots(figsize=(8,8))
     nbins         = args.ntbins
-    time_bins     = np.geomspace(args.t_bin_start * units.day, args.tend * time_scale.to(units.day), nbins)
-    flux_per_tbin = {i: np.zeros_like(time_bins.value) for i in range(len(args.nu))}
+    nbin_edges    = nbins + 1
+    time_bins     = np.geomspace(args.t_bin_start * units.day, args.tend * time_scale.to(units.day), nbin_edges)
+    flux_per_tbin = {i: np.zeros(nbins) * units.Jy for i in args.nu}
     events_list   = np.zeros(shape=(len(files), 2))
     storage       = {}
     
     linestyles = ['-','--','-.',':'] # list of basic linestyles
-    for nidx, nu in enumerate(args.nu):
-        discrete_times = []
-        for idx, file in enumerate(files):
-            if args.files2d:
-                fields, setup, mesh = util.read_2d_file(args, file)
-                sari_piran_narayan_99(fields, args, frequency=nu, time_bins=time_bins, flux_array = flux_per_tbin[nidx], mesh=mesh, dset=setup, storage=storage, case=idx)
-            else:
-                fields, setup, mesh = util.read_1d_file(file)
-                sari_piran_narayan_99(fields, args, frequency=nu, time_bins=time_bins, flux_array = flux_per_tbin[nidx], mesh=mesh, dset=setup, storage=storage, case=idx)
-        
-        power_of_ten = int(np.floor(np.log10(freqs[nidx].value)))
-        front_part   = freqs[nidx] / 10**power_of_ten 
-        if front_part.value == 1.0:
+    for idx, file in enumerate(files):
+        func_args = func_args0 + [file]
+        fields, setup, mesh = file_reader(*func_args)
+        sari_piran_narayan_99(fields, args, time_bins=time_bins, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
+        print(f"Processed file {file}")
+    
+    t0 = args.t0 * time_scale.to(units.day)
+    # time_bins *= 10**np.log10((t0 + time_bins) / time_bins)
+    for nidx, freq in enumerate(args.nu):
+        power_of_ten = int(np.floor(np.log10(freq)))
+        front_part   = freq / 10**power_of_ten 
+        if front_part == 1.0:
             freq_label = r'10^{%d}'%(power_of_ten)
         else:
-            freq_label = r'%f \times 10^{%d}'%(front_part.value, power_of_ten)
-        
-        style = linestyles[nidx % len(args.nu)]
-        ax.plot(time_bins, 1e-3 * flux_per_tbin[nidx], linestyle=style, label=r'$\nu={} \rm Hz$'.format(freq_label))
+            freq_label = r'%f \times 10^{%d}'%(front_part, power_of_ten)
     
+        style = linestyles[nidx % len(args.nu)]
+        ax.plot(time_bins[:-1], 1e-3 * flux_per_tbin[freq], linestyle=style, label=r'$\nu={} \rm Hz$'.format(freq_label))
+    
+   
+    tbound1    = storage['first_light']
+    tbound2    = time_bins[-2]
     ax.set_title('Light curve for spherical BMK Test')
-    ax.set_xlim(storage['first_light'].value*1.1, 0.9 * time_bins[-1].value)
-    ax.set_ylim(bottom=1e-13)
+    ax.set_xlim(tbound1.value, tbound2.value)
+    # ax.set_ylim(1e-17, 1e4)
     ax.set_yscale('log')
     ax.set_xscale('log')
     ax.set_xlabel(r'$t_{\rm obs} [\rm day]$')
-    ax.set_ylabel(r'$\rm Flux Density \ [\rm mJy]$')
+    ax.set_ylabel(r'$\rm Flux \ Density \ [\rm mJy]$')
     ax.legend()
     
     if args.save:

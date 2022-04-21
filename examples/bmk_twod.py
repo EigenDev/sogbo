@@ -153,11 +153,11 @@ def main():
                 
             if args.var == 'gamma_beta':
                 gb  = (gamma_fluid**2 - 1.0)**0.5
-                ax.semilogx(r, gb[args.tidx], color='black')
+                ax.semilogx(r, gb[args.tidx])
             elif args.var == 'rho':
-                ax.semilogx(r, rho[args.tidx], color='black')
+                ax.semilogx(r, rho[args.tidx])
             elif args.var == 'pressure':
-                ax.semilogx(r, pressure[args.tidx], color='black')
+                ax.semilogx(r, pressure[args.tidx])
             t_last = t + args.tinterval 
             i += 1
             
