@@ -693,7 +693,7 @@ def main():
         func_args = func_args0 + [file]
         fields, setup, mesh = file_reader(*func_args)
         sari_piran_narayan_99(fields, args, time_bins=time_bins, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
-        print(f"Processed file {file}")
+        print(f"Processed file {file}", flush=True)
     
     t0 = args.t0 * time_scale.to(units.day)
     # time_bins *= 10**np.log10((t0 + time_bins) / time_bins)
