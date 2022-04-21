@@ -650,8 +650,7 @@ def main():
     parser.add_argument('--theta_obs', dest='theta_obs', help='observation angle in degrees', type=float, default=0.0)
     parser.add_argument('--nu', dest='nu', help='Observed frequency', default=1e9, type=float, nargs='+')
     parser.add_argument('--gamma_lims', dest='gamma_lims', help='lorentz gamma limits for electron distro', default=[1.0,100.0], nargs='+', type=float)
-    parser.add_argument('--2d', help='Set if files are 2d checkpts', dest='files2d', default=False, action='store_true')
-    parser.add_argument('--3d', help='Set if files are 3d checkpts', dest='files3d', default=False, action='store_true')
+    parser.add_argument('--dim', dest='dim', help='number of dimensions in checkpoin data', default=1, choices=[1,2,3], type=int)
     parser.add_argument('--full_sphere', help='Set if want to account for radiaition over whole sphere. Default is half', default=False, action='store_true')
     parser.add_argument('--save', help='file name to save fig', dest='save', default=None, type=str)
     parser.add_argument('--tex', help='true if want latex rendering on figs', default=False, action='store_true')
@@ -673,7 +672,7 @@ def main():
     else:
         files = args.files 
     
-    if args.files2d:
+    if args.dim == 2:
         file_reader = util.read_2d_file
         func_args0  = [args]
     else:
