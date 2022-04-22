@@ -717,7 +717,7 @@ def main():
         ax.set_title('Light curve for conical BMK Test')
         
     ax.set_xlim(tbound1.value, tbound2.value)
-    # ax.set_ylim(1e-17, 1e4)
+    ax.set_ylim(1e-17, 1e4)
     ax.set_yscale('log')
     ax.set_xscale('log')
     ax.set_xlabel(r'$t_{\rm obs} [\rm day]$')
