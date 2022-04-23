@@ -157,7 +157,7 @@ def calc_bfield_shock(fields: dict, eb: float = 0.1) -> np.ndarray:
     comoving_density = fields['rho'] * W *  rho_scale
     return (32 * np.pi *  eb * comoving_density)**0.5 * W * const.c.cgs 
 
-def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dict,dict]:
+def read_2d_file(filename: str) -> Union[dict,dict,dict]:
     setup  = {}
     fields = {}
     is_cartesian = False
@@ -230,28 +230,17 @@ def read_2d_file(args: argparse.ArgumentParser, filename: str) -> Union[dict,dic
         except:
             pass 
         
-        try:
-            if args.forder:
-                rho = rho[1:-1, 1: -1]
-                v1  = v1 [1:-1, 1: -1]
-                v2  = v2 [1:-1, 1: -1]
-                p   = p  [1:-1, 1: -1]
-                chi = chi[1:-1, 1: -1]
-                xactive = nx - 2
-                yactive = ny - 2
-                setup['xactive'] = xactive
-                setup['yactive'] = yactive
-            else:
-                rho = rho[2:-2, 2: -2]
-                v1  = v1 [2:-2, 2: -2]
-                v2  = v2 [2:-2, 2: -2]
-                p   = p  [2:-2, 2: -2]
-                chi = chi[2:-2, 2: -2]
-                xactive = nx - 4
-                yactive = ny - 4
-                setup['xactive'] = xactive
-                setup['yactive'] = yactive
-        except:
+        if 'radii' not in locals():
+            rho = rho[2:-2, 2: -2]
+            v1  = v1 [2:-2, 2: -2]
+            v2  = v2 [2:-2, 2: -2]
+            p   = p  [2:-2, 2: -2]
+            chi = chi[2:-2, 2: -2]
+            xactive = nx - 4
+            yactive = ny - 4
+            setup['xactive'] = xactive
+            setup['yactive'] = yactive
+        else:
             xactive = nx
             yactive = ny
             setup['xactive'] = xactive

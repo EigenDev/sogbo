@@ -81,8 +81,7 @@ def generate_mesh(args: argparse.ArgumentParser, mesh: dict):
 def get_tbin_edges(
     args: argparse.ArgumentParser, 
     file_reader: Callable,
-    files: str, 
-    *file_args):
+    files: str):
     """
     Get the bin edges of the lightcurves based on the checkpoints given
     
@@ -94,8 +93,8 @@ def get_tbin_edges(
     -----------------------------------
     tmin, tmax: tuple of time bins in units of days
     """
-    fields_init,  setup_init,  mesh_init  = file_reader(files[0], *file_args)
-    fields_final, setup_final, mesh_final = file_reader(files[-1],*file_args)
+    fields_init,  setup_init,  mesh_init  = file_reader(files[0])
+    fields_final, setup_final, mesh_final = file_reader(files[-1])
     
     t_beg = setup_init['time'] * time_scale
     t_end = setup_final['time'] * time_scale
@@ -105,14 +104,18 @@ def get_tbin_edges(
     rhat              = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radial unit vector                                                                                 # electron particle number index   
     
     # Place observer along chosen axis
-    theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(thetta)
-    obs_hat    = np.array([np.sin(theta_obs)*np.cos(phii), np.sin(theta_obs) * np.sin(phii), np.cos(theta_obs)])
+    theta_obs_rad = np.deg2rad(args.theta_obs)
+    theta_obs     = theta_obs_rad * np.ones_like(thetta)
+    obs_hat       = np.array([np.sin(theta_obs)*np.cos(phii), np.sin(theta_obs) * np.sin(phii), np.cos(theta_obs)])
 
     t_obs_min  = t_beg - rr0 * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
     t_obs_max  = t_end - rrf * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
 
-    tmin = (t_obs_min[t_obs_min > 0].min()).to(units.day)
-    tmax = (t_obs_max[t_obs_max > 0].max()).to(units.day)
+    theta_idx  = util.find_nearest(thetta[0,:,0], theta_obs_rad)[0]
+    t_obs_beam = t_obs_min[0][theta_idx]
+    t_obs_beam = t_obs_beam[t_obs_beam > 0]
+    tmin       = (t_obs_beam.min()).to(units.day)
+    tmax       = (t_obs_max[t_obs_max > 0].max()).to(units.day)
     
     return tmin, tmax
 
@@ -719,18 +722,17 @@ def main():
     else:
         files = args.files 
     
+    
     if args.dim == 2:
-        file_reader = util.read_2d_file
-        func_args0  = [args]
+        file_reader = util.read_2d_file 
     else:
         file_reader = util.read_1d_file
-        func_args0  = []
         
     freqs         = np.array(args.nu) * units.Hz
     fig, ax       = plt.subplots(figsize=(8,8))
     nbins         = args.ntbins
     nbin_edges    = nbins + 1
-    tbin_edge     = get_tbin_edges(args, file_reader, files, *func_args0)
+    tbin_edge     = get_tbin_edges(args, file_reader, files)
     time_bins     = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
     flux_per_tbin = {i: np.zeros(nbins) * units.Jy for i in args.nu}
     events_list   = np.zeros(shape=(len(files), 2))
@@ -738,8 +740,7 @@ def main():
     
     linestyles = ['-','--','-.',':'] # list of basic linestyles
     for idx, file in enumerate(files):
-        func_args = func_args0 + [file]
-        fields, setup, mesh = file_reader(*func_args)
+        fields, setup, mesh = file_reader(file)
         sari_piran_narayan_99(fields, args, time_bins=time_bins, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
         print(f"Processed file {file}", flush=True)
     
