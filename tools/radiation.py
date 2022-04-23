@@ -64,7 +64,7 @@ def generate_mesh(args: argparse.ArgumentParser, mesh: dict):
     else:
         dlogr         = np.log10(r.max()/r.min())/(r.size - 1)
         theta_max     = np.pi / 2 if not args.full_sphere else np.pi
-        theta_samples = int(thets_max / dlogr + 1)
+        theta_samples = int(theta_max / dlogr + 1)
         theta         = np.linspace(0.0, theta_max, theta_samples)
         
     if 'phi' in mesh:
