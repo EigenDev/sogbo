@@ -10,6 +10,8 @@ import argparse
 import os 
 import sys
 
+from typing import Callable
+
 # FONT SIZES
 SMALL_SIZE   = 8
 DEFAULT_SIZE = 10
@@ -37,24 +39,82 @@ else:
     time_scale   = length_scale / const.c.cgs 
     pre_scale    = e_scale / length_scale ** 3
 
-# Define function for string formatting of scientific notation
-def sci_notation(num, decimal_digits=1, precision=None, exponent=None):
+def generate_mesh(args: argparse.ArgumentParser, mesh: dict):
     """
-    Returns a string representation of the scientific
-    notation of the given number formatted for use with
-    LaTeX or Mathtext, with specified number of significant
-    decimal digits and precision (number of decimal digits
-    to show). The exponent to be used can also be specified
-    explicitly.
+    Generate a real or pseudo 3D mesh based on checkpoint data
+    
+    Parameters
+    --------------------------
+    args: argparser arguments from CLI 
+    mesh: the mesh data from the checkpoint
+    
+    Return
+    --------------------------
+    rr:      (np.ndarray) 3D array of radial points
+    thetta:  (np.ndarray) 3D array of polar points
+    phii:    (np.ndarray) 3D arrray of azimuthal points
+    ndim:    (int)        number of dimension from checkpoint mesh
     """
-    if exponent is None:
-        exponent = int(np.floor(np.log10(abs(num))))
-    coeff = round(num / float(10**exponent), decimal_digits)
-    if precision is None:
-        precision = decimal_digits
+    
+    r = mesh['r']
+    ndim = 1
+    if 'theta' in mesh:
+        ndim += 1
+        theta = mesh['theta']
+    else:
+        dlogr         = np.log10(r.max()/r.min())/(r.size - 1)
+        theta_max     = np.pi / 2 if not args.full_sphere else np.pi
+        theta_samples = int(thets_max / dlogr + 1)
+        theta         = np.linspace(0.0, theta_max, theta_samples)
         
-    return r"${0:.{2}f}\cdot10^{{{1:d}}}$".format(coeff, exponent, precision)
+    if 'phi' in mesh:
+        ndim += 1
+        phi  = mesh['phi']
+    else:
+        phi_samples = 10
+        phi = np.linspace(0.0, 2.0 * np.pi, phi_samples)
 
+    thetta, phii, rr = np.meshgrid(theta, phi, r)
+    
+    return rr, thetta, phii, ndim
+# Define function for string formatting of scientific notation
+def get_tbin_edges(
+    args: argparse.ArgumentParser, 
+    file_reader: Callable,
+    files: str, 
+    *file_args):
+    """
+    Get the bin edges of the lightcurves based on the checkpoints given
+    
+    Parameters:
+    -----------------------------------
+    files: list of files to draw data from
+    
+    Returns:
+    -----------------------------------
+    tmin, tmax: tuple of time bins in units of days
+    """
+    fields_init,  setup_init,  mesh_init  = file_reader(files[0], *file_args)
+    fields_final, setup_final, mesh_final = file_reader(files[-1],*file_args)
+    
+    t_beg = setup_init['time'] * time_scale
+    t_end = setup_final['time'] * time_scale
+    
+    rr0, thetta, phii = generate_mesh(args, mesh_init)[:-1]
+    rrf               = generate_mesh(args, mesh_final)[0]
+    rhat              = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radial unit vector                                                                                 # electron particle number index   
+    
+    # Place observer along chosen axis
+    theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(thetta)
+    obs_hat    = np.array([np.sin(theta_obs)*np.cos(phii), np.sin(theta_obs) * np.sin(phii), np.cos(theta_obs)])
+
+    t_obs_min  = t_beg - rr0 * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
+    t_obs_max  = t_end - rrf * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
+
+    tmin = (t_obs_min[t_obs_min > 0].min()).to(units.day)
+    tmax = (t_obs_max[t_obs_max > 0].max()).to(units.day)
+    
+    return tmin, tmax
 
 def running_mean(x, N):
     cumsum = np.cumsum(np.insert(x, 0, 0)) 
@@ -277,7 +337,9 @@ def calc_max_power_per_frequency(bfield: float) -> float:
     return (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (3.0 * const.e.gauss) * bfield
 
 def calc_emissivity(bfield: float, n: float, p: float) -> float:
-    """Calculate the peak emissivity per frequency""" 
+    """Calculate the peak emissivity per frequency per equation (1) in
+    https://iopscience.iop.org/article/10.1088/0004-637X/722/1/235/pdf
+    """ 
     return 0.88 * (16.0/3.0)**2 * (p - 1) / (3.0 * p - 1.0) * (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (8.0 * np.pi * const.e.gauss) * n * bfield
 
 def calc_gamma_min(eps_e: float,e_thermal: float, n: float, p: float) -> float:
@@ -429,24 +491,7 @@ def sari_piran_narayan_99(
     r = mesh['r']
     d = 1e28 * units.cm
     if case == 0:
-        ndim = 1 
-        if 'theta' in mesh:
-            ndim += 1
-            theta = mesh['theta']
-        else:
-            dlogr         = np.log10(r.max()/r.min())/(r.size - 1)
-            thets_max     = np.pi / 2 if not args.full_sphere else np.pi
-            theta_samples = int(thets_max / dlogr + 1)
-            theta         = np.linspace(0.0, thets_max, theta_samples)
-            
-        if 'phi' in mesh:
-            ndim += 1
-            phi  = mesh['phi']
-        else:
-            phi_samples   = 10
-            phi = np.linspace(0.0, 2.0 * np.pi, phi_samples)
-
-        thetta, phii, rr = np.meshgrid(theta, phi, r)
+        rr, thetta, phii, ndim = generate_mesh(args, mesh)
 
         # Calc cell volumes
         dvolume = util.calc_cell_volume3D(rr, thetta, phii) * length_scale ** 3
@@ -472,6 +517,7 @@ def sari_piran_narayan_99(
     dvolume  = storage['dvolume']
     
     # Calculate the maximum flux based on the average bolometric power per electron
+    alpha             = 0.5 * (p - 1.0)                                             # Spectral power law index (might not need after all)
     nu_c              = calc_nu(gamma_crit, nu_g)                                   # Critical frequency
     nu_m              = calc_nu(gamma_min, nu_g)                                    # Minimum frequency
     delta_doppler     = calc_doppler_delta(w, beta_vector=beta_vec, n_hat=obs_hat)  # Doppler factor
@@ -480,6 +526,7 @@ def sari_piran_narayan_99(
     flux_max          = total_power * delta_doppler ** (2.0)                        # Maximum flux 
     
     storage['t_obs']     = t_obs
+    storage['t_max']     = t_obs.max()
     storage['t_prime']   = t_prime
     dt_obs               = time_bins[1:] - time_bins[:-1]
     dt_day               = dt.to(units.day)
@@ -489,11 +536,6 @@ def sari_piran_narayan_99(
     for freq in args.nu:
         ff = calc_powerlaw_flux(mesh, flux_max, p, freq * units.Hz, nu_c, nu_m, ndim = ndim)
         ff = (ff / (4.0 * np.pi * d **2)).to(units.Jy)
-        
-        if case == 0:
-            obs_theta_idx          = util.find_nearest(theta, args.theta_obs)[0]
-            tr                     = ff[0][obs_theta_idx].argmax() 
-            storage['first_light'] = t_obs[0][obs_theta_idx][0]
             
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(time_bins[:-1]):
@@ -688,7 +730,8 @@ def main():
     fig, ax       = plt.subplots(figsize=(8,8))
     nbins         = args.ntbins
     nbin_edges    = nbins + 1
-    time_bins     = np.geomspace(args.t_bin_start * units.day, args.tend * time_scale.to(units.day), nbin_edges)
+    tbin_edge     = get_tbin_edges(args, file_reader, files, *func_args0)
+    time_bins     = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
     flux_per_tbin = {i: np.zeros(nbins) * units.Jy for i in args.nu}
     events_list   = np.zeros(shape=(len(files), 2))
     storage       = {}
@@ -708,21 +751,21 @@ def main():
         if front_part == 1.0:
             freq_label = r'10^{%d}'%(power_of_ten)
         else:
-            freq_label = r'%f \times 10^{%d}'%(front_part, power_of_ten)
+            freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
     
         style = linestyles[nidx % len(args.nu)]
         ax.plot(time_bins[:-1], 1e-3 * flux_per_tbin[freq], linestyle=style, label=r'$\nu={} \rm Hz$'.format(freq_label))
     
-   
-    tbound1    = storage['first_light']
-    tbound2    = time_bins[-2]
+
+    tbound1    = time_bins[0]
+    tbound2    = time_bins[-3]
     if args.dim == 1:
         ax.set_title('Light curve for spherical BMK Test')
     else:
         ax.set_title('Light curve for conical BMK Test')
         
     ax.set_xlim(tbound1.value, tbound2.value)
-    ax.set_ylim(1e-17, 1e4)
+    ax.set_ylim(1e-14, 1e4)
     ax.set_yscale('log')
     ax.set_xscale('log')
     ax.set_xlabel(r'$t_{\rm obs} [\rm day]$')
