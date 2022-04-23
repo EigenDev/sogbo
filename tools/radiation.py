@@ -126,7 +126,12 @@ def calc_gyration_frequency(b_field: float) -> float:
     ---------------------
     the gyration frequency 
     """
-    frequency_for_unit_field = (const.e.gauss * 1 * units.gauss) / (2.0 * np.pi * const.m_e.cgs * const.c.cgs)
+    # frequency_for_unit_field = (const.e.gauss * 1.0 * units.gauss) / (2.0 * np.pi * const.m_e.cgs * const.c.cgs)
+    # print(frequency_for_unit_field)
+    frequency_for_unit_field = (3.0 / 16.0) * (const.e.gauss * 1.0 * units.gauss) / (const.m_e.cgs * const.c.cgs)
+    # print(frequency_for_unit_field)
+    # zzz = input('')
+    # zzz = input('')
     return frequency_for_unit_field.value  * b_field.value * units.Hz
 
 def calc_total_synch_power(lorentz_gamma: float, ub: float, beta: float) -> float:
@@ -257,7 +262,6 @@ def calc_doppler_delta(lorentz_gamma: float, beta_vector: np.ndarray, n_hat: np.
     ---------------------------------------
     the standard doppler factor delta 
     """
-
     return 1.0 / (lorentz_gamma * (1.0  - vector_dotproduct(beta_vector, n_hat)))
 
 def calc_nu(gamma_e: float, nu_g: float):
@@ -274,7 +278,7 @@ def calc_max_power_per_frequency(bfield: float) -> float:
 
 def calc_emissivity(bfield: float, n: float, p: float) -> float:
     """Calculate the peak emissivity per frequency""" 
-    return 0.88 * (16.0/3.0)**2 * (p - 1) / (3.0 * p - 1.0) * (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (3.0 * const.e.gauss) * n * bfield
+    return 0.88 * (16.0/3.0)**2 * (p - 1) / (3.0 * p - 1.0) * (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (8.0 * np.pi * const.e.gauss) * n * bfield
 
 def calc_gamma_min(eps_e: float,e_thermal: float, n: float, p: float) -> float:
     """
@@ -291,7 +295,7 @@ def calc_gamma_min(eps_e: float,e_thermal: float, n: float, p: float) -> float:
     """
     return eps_e * (p - 2.0) / (p - 1.0) * e_thermal / (n * const.m_e.cgs * const.c.cgs**2)
 
-def flux(
+def calc_powerlaw_flux(
         mesh:     dict,
         flux_max: float, 
         p:        float,
@@ -304,6 +308,7 @@ def flux(
         Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
         ---------------------------------------
         """
+        f_nu = flux_max.copy()
         slow_cool    = nu_c > nu_m
         fast_cool    = nu_c < nu_m
         
@@ -319,13 +324,13 @@ def flux(
         slow_mask2   = slow_cool & slow_break2
         slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
         if ndim == 1:
-            flux_max[:, :, slow_mask1] *= (nu / nu_m[slow_mask1])**(1.0 / 3.0)  
-            flux_max[:, :, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu / nu_c[slow_mask2])**(-0.5 * p)
-            flux_max[:, :, slow_mask3] *= (nu / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            f_nu[:, :, slow_mask1] *= (nu / nu_m[slow_mask1])**(1.0 / 3.0)  
+            f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, :, slow_mask3] *= (nu / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
             
-            flux_max[:, :, fast_mask1] *= (nu / nu_c[fast_mask1])**(1.0 / 3.0)
-            flux_max[:, :, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu / nu_m[fast_mask2])**(-0.5 * p)
-            flux_max[:, :, fast_mask3] *= (nu / nu_c[fast_mask3])**(-0.5)
+            f_nu[:, :, fast_mask1] *= (nu / nu_c[fast_mask1])**(1.0 / 3.0)
+            f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, :, fast_mask3] *= (nu / nu_c[fast_mask3])**(-0.5)
             
             # print("a")
             # r = mesh['r']
@@ -335,29 +340,29 @@ def flux(
             #     cooling = 'slow' if nu_crit > nu_min else 'fast'
             #     if cooling == 'fast':
             #         if nu_crit > nu:
-            #             flux_max[:, :, ridx]  *= (nu/nu_crit)**(1.0/3.0)
+            #             f_nu[:, :, ridx]  *= (nu/nu_crit)**(1.0/3.0)
             #         elif nu > nu_min:
-            #              flux_max[:, :, ridx] *= (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)
+            #              f_nu[:, :, ridx] *= (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)
             #         else:
-            #             flux_max[:, :, ridx]  *= (nu/nu_crit)**(-0.5) 
+            #             f_nu[:, :, ridx]  *= (nu/nu_crit)**(-0.5) 
             #     else:
             #         if nu_min > nu:
-            #             flux_max[:, :, ridx] *= (nu/nu_min)**(1.0/3.0)
+            #             f_nu[:, :, ridx] *= (nu/nu_min)**(1.0/3.0)
             #         elif nu > nu_crit:
-            #             flux_max[:, :, ridx] *= (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p) 
+            #             f_nu[:, :, ridx] *= (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p) 
             #         else:
-            #             flux_max[:, :, ridx] *= (nu/nu_min) **(-0.5*(p-1.0))
-            # print(flux_max[0])
+            #             f_nu[:, :, ridx] *= (nu/nu_min) **(-0.5*(p-1.0))
+            # print(f_nu[0])
             # print("b")
             # zzz = input('')
         else:
-            flux_max[:, slow_mask1] *= (nu / nu_m[slow_mask1])**(1.0 / 3.0)  
-            flux_max[:, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu / nu_c[slow_mask2])**(-0.5 * p)
-            flux_max[:, slow_mask3] *= (nu / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            f_nu[:, slow_mask1] *= (nu / nu_m[slow_mask1])**(1.0 / 3.0)  
+            f_nu[:, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, slow_mask3] *= (nu / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
             
-            flux_max[:, fast_mask1] *= (nu / nu_c[fast_mask1])**(1.0 / 3.0)
-            flux_max[:, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu / nu_m[fast_mask2])**(-0.5 * p)
-            flux_max[:, fast_mask3] *= (nu / nu_c[fast_mask3])**(-0.5)
+            f_nu[:, fast_mask1] *= (nu / nu_c[fast_mask1])**(1.0 / 3.0)
+            f_nu[:, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, fast_mask3] *= (nu / nu_c[fast_mask3])**(-0.5)
             # print("a")
             # theta        = mesh['theta']
             # r            = mesh['r']
@@ -369,22 +374,22 @@ def flux(
             #         zone = tidx, ridx
             #         if cooling == 'fast':
             #             if nu_crit > nu:
-            #                 flux_max[:, zone]  *= (nu/nu_crit)**(1.0/3.0)
+            #                 f_nu[:, zone]  *= (nu/nu_crit)**(1.0/3.0)
             #             elif nu > nu_min:
-            #                 flux_max[:, zone]  *= (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)
+            #                 f_nu[:, zone]  *= (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)
             #             else:
-            #                 flux_max[:, zone]  *= (nu/nu_crit)**(-0.5) 
+            #                 f_nu[:, zone]  *= (nu/nu_crit)**(-0.5) 
             #         else:
             #             if nu_min > nu:
-            #                 flux_max[:, zone] *= (nu/nu_min)**(1.0/3.0)
+            #                 f_nu[:, zone] *= (nu/nu_min)**(1.0/3.0)
             #             elif nu > nu_crit:
-            #                 flux_max[:, zone] *= (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p) 
+            #                 f_nu[:, zone] *= (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p) 
             #             else:
-            #                 flux_max[:, zone] *= (nu/nu_min) **(-0.5*(p-1.0))
-            # print(flux_max[0])
+            #                 f_nu[:, zone] *= (nu/nu_min) **(-0.5*(p-1.0))
+            # print(f_nu[0])
             # print("b")
             # zzz = input('')
-        return flux_max 
+        return f_nu 
     
 def sari_piran_narayan_99(
     fields:         dict, 
@@ -421,9 +426,8 @@ def sari_piran_narayan_99(
     gamma_min  = calc_gamma_min(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
     gamma_crit = calc_critical_lorentz(bfield, t_emitter)                # Critical Lorentz factor of electrons
     
-    r         = mesh['r']
-    d         = 1e28 * units.cm
-    dt_chkpt  = t_prime - storage['t_prime'] if case != 0 else dt # time since observation n-1
+    r = mesh['r']
+    d = 1e28 * units.cm
     if case == 0:
         ndim = 1 
         if 'theta' in mesh:
@@ -459,7 +463,8 @@ def sari_piran_narayan_99(
         storage['dvolume'] = dvolume
         t_obs   = t_prime - rr * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
     else:
-        t_obs   = storage['t_obs'] + dt_chkpt
+        dt_chkpt = t_prime - storage['t_prime']
+        t_obs    = storage['t_obs'] + dt_chkpt
 
     beta_vec = beta * storage['rhat']
     obs_hat  = storage['obs_hat']
@@ -469,27 +474,27 @@ def sari_piran_narayan_99(
     # Calculate the maximum flux based on the average bolometric power per electron
     nu_c              = calc_nu(gamma_crit, nu_g)                                   # Critical frequency
     nu_m              = calc_nu(gamma_min, nu_g)                                    # Minimum frequency
-    alpha             = (p - 1.0) * 0.5                                             # spectral index
     delta_doppler     = calc_doppler_delta(w, beta_vector=beta_vec, n_hat=obs_hat)  # Doppler factor
     emissivity        = calc_emissivity(bfield, n_e_proper, p)                      # Emissibity per cell 
     total_power       = storage['dvolume'] * emissivity                             # Total emitted power per unit frequency in each cell volume
-    flux_max          = total_power * delta_doppler ** (3.0 + alpha)                # Maximum flux 
+    flux_max          = total_power * delta_doppler ** (2.0)                        # Maximum flux 
     
-    # loop through the given frequencies and put them in their respective locations
     storage['t_obs']     = t_obs
     storage['t_prime']   = t_prime
     dt_obs               = time_bins[1:] - time_bins[:-1]
     dt_day               = dt.to(units.day)
     t_obs                = t_obs.to(units.day)
     
+    # loop through the given frequencies and put them in their respective locations in dictionary
     for freq in args.nu:
-        ff = flux(mesh, flux_max, p, freq * units.Hz, nu_c, nu_m, ndim = ndim)
+        ff = calc_powerlaw_flux(mesh, flux_max, p, freq * units.Hz, nu_c, nu_m, ndim = ndim)
         ff = (ff / (4.0 * np.pi * d **2)).to(units.Jy)
         
         if case == 0:
             obs_theta_idx          = util.find_nearest(theta, args.theta_obs)[0]
             tr                     = ff[0][obs_theta_idx].argmax() 
             storage['first_light'] = t_obs[0][obs_theta_idx][0]
+            
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(time_bins[:-1]):
             t2 = time_bins[idx + 1]
