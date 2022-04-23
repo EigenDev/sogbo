@@ -92,10 +92,11 @@ def get_tbin_edges(
     -----------------------------------
     tmin, tmax: tuple of time bins in units of days
     """
-    fields_init,  setup_init,  mesh_init  = file_reader(files[0])
-    fields_final, setup_final, mesh_final = file_reader(files[-1])
     
-    t_beg = setup_init['time'] * time_scale
+    setup_init,  mesh_init  = file_reader(files[0])[1:]
+    setup_final, mesh_final = file_reader(files[-1])[1:]
+    
+    t_beg = setup_init['time']  * time_scale
     t_end = setup_final['time'] * time_scale
     
     rr0, thetta, phii = generate_mesh(args, mesh_init)[:-1]
@@ -108,8 +109,8 @@ def get_tbin_edges(
     obs_hat       = np.array([np.sin(theta_obs), np.zeros_like(thetta), np.cos(theta_obs)])
     r_dot_nhat    = vector_dotproduct(rhat, obs_hat)
     
-    t_obs_min  = t_beg - rr0 * length_scale * r_dot_nhat / const.c.cgs
-    t_obs_max  = t_end - rrf * length_scale * r_dot_nhat / const.c.cgs
+    t_obs_min  = t_beg - rr0 * time_scale * r_dot_nhat
+    t_obs_max  = t_end - rrf * time_scale * r_dot_nhat
 
     theta_idx  = util.find_nearest(thetta[0,:,0], theta_obs_rad)[0]
     t_obs_beam = t_obs_min[0][theta_idx]
@@ -147,23 +148,6 @@ def shock_finder(vfield: np.ndarray, r: np.ndarray) -> int:
     
     divs   = np.asanyarray(divs)
 
-# def calc_bfield_shock(rho: float, lorentz_gamma: float, beta: float, eps_b: float = 0.1) -> float:
-#     """
-#     Calc magnitude of magnetic field assuming shock jump conditions
-    
-#     Params:
-#     ------------------------------------------------
-#     rho:           fluid density in rest frame 
-#     lorentz_gamma: lorentz factor 
-#     beta:          dimensionless velocity of flow 
-#     eps_b:            magnetic energy fraction
-    
-#     Return:
-#     ------------------------------------------------
-#     The magnetic field magnitude 
-#     """
-#     return (8.0 * np.pi * eps_b * rho * rho_scale)**0.5 * lorentz_gamma * beta * const.c.cgs
-
 def calc_bfield_shock(einternal: float, eps_b: float) -> float:
     """
     Calc magnitude of magnetic field assuming shock jump conditions
@@ -191,15 +175,13 @@ def calc_gyration_frequency(b_field: float) -> float:
     the gyration frequency 
     """
     # frequency_for_unit_field = (const.e.gauss * 1.0 * units.gauss) / (2.0 * np.pi * const.m_e.cgs * const.c.cgs)
-    # print(frequency_for_unit_field)
     frequency_for_unit_field = (3.0 / 16.0) * (const.e.gauss * 1.0 * units.gauss) / (const.m_e.cgs * const.c.cgs)
-    # print(frequency_for_unit_field)
-    # zzz = input('')
-    # zzz = input('')
     return frequency_for_unit_field.value  * b_field.value * units.Hz
 
 def calc_total_synch_power(lorentz_gamma: float, ub: float, beta: float) -> float:
     """
+    Calc bolometric synhrotron power
+    
     Params:
     --------------------------------------
     lorentz_gamma:   lorentz factor 
@@ -389,14 +371,24 @@ def calc_powerlaw_flux(
         slow_mask1   = slow_cool & slow_break1
         slow_mask2   = slow_cool & slow_break2
         slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
+        
         if ndim == 1:
-            f_nu[:, :, slow_mask1] *= (nu / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu / nu_c[slow_mask2])**(-0.5 * p)
-            f_nu[:, :, slow_mask3] *= (nu / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            # Collapse the masks into their respective 1D symmetries
+            slow_mask1 = slow_mask1[0][0]
+            slow_mask2 = slow_mask2[0][0]
+            slow_mask3 = slow_mask3[0][0]
             
-            f_nu[:, :, fast_mask1] *= (nu / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu / nu_m[fast_mask2])**(-0.5 * p)
-            f_nu[:, :, fast_mask3] *= (nu / nu_c[fast_mask3])**(-0.5)
+            fast_mask1 = fast_mask1[0][0]
+            fast_mask2 = fast_mask2[0][0]
+            fast_mask3 = fast_mask3[0][0]
+            
+            f_nu[:, :, slow_mask1] *= (nu[:, :, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
+            f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, :, slow_mask3] *= (nu[:, :, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            
+            f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
+            f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
             
             # print("a")
             # r = mesh['r']
@@ -422,13 +414,21 @@ def calc_powerlaw_flux(
             # print("b")
             # zzz = input('')
         else:
-            f_nu[:, slow_mask1] *= (nu / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu / nu_c[slow_mask2])**(-0.5 * p)
-            f_nu[:, slow_mask3] *= (nu / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            # Collapse the masks into their respective 2D symmetries
+            slow_mask1 = slow_mask1[0]
+            slow_mask2 = slow_mask2[0]
+            slow_mask3 = slow_mask3[0]
             
-            f_nu[:, fast_mask1] *= (nu / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu / nu_m[fast_mask2])**(-0.5 * p)
-            f_nu[:, fast_mask3] *= (nu / nu_c[fast_mask3])**(-0.5)
+            fast_mask1 = fast_mask1[0]
+            fast_mask2 = fast_mask2[0]
+            fast_mask3 = fast_mask3[0]
+            f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
+            f_nu[:, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            
+            f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
+            f_nu[:, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
             # print("a")
             # theta        = mesh['theta']
             # r            = mesh['r']
@@ -503,7 +503,8 @@ def sari_piran_narayan_99(
         # Place observer along chosen axis
         theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(thetta)
         obs_hat    = np.array([np.sin(theta_obs)*np.cos(phii), np.sin(theta_obs) * np.sin(phii), np.cos(theta_obs)])
-        
+        obs_idx = util.find_nearest(thetta[0,:,0], np.deg2rad(args.theta_obs))[0]
+        storage['obs_idx'] = obs_idx
         # Store everything in a dictionary that is constant
         storage['rhat']    = rhat 
         storage['obs_hat'] = obs_hat 
@@ -535,14 +536,24 @@ def sari_piran_narayan_99(
     dt_day               = dt.to(units.day)
     t_obs                = t_obs.to(units.day)
     
+    
     # loop through the given frequencies and put them in their respective locations in dictionary
     for freq in args.nu:
-        ff = calc_powerlaw_flux(mesh, flux_max, p, freq * units.Hz, nu_c, nu_m, ndim = ndim)
+        nu_boost = freq * units.Hz / delta_doppler
+        ff = calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
+        
+        # print(ff[0][0] / storage['dvolume'] / delta_doppler ** 2)
+        # zzz = input('')
         ff = (ff / (4.0 * np.pi * d **2)).to(units.Jy)
-            
+
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(time_bins[:-1]):
             t2 = time_bins[idx + 1]
+            
+            # if idx == 0:
+            #     test = ff[(t_obs > t1) & (t_obs < t2)]
+            #     print(test.sum())
+            #     zzz = input('')
             flux_array[freq][idx] += dt_day / dt_obs[idx] * ff[(t_obs > t1) & (t_obs < t2)].sum()
         
 def log_events(
@@ -760,8 +771,8 @@ def main():
         ax.plot(time_bins[:-1], 1e-3 * flux_per_tbin[freq], linestyle=style, label=r'$\nu={} \rm Hz$'.format(freq_label))
     
 
-    tbound1    = time_bins[0]
-    tbound2    = time_bins[-3]
+    tbound1 = time_bins[0]
+    tbound2 = time_bins[-2]
     if args.dim == 1:
         ax.set_title('Light curve for spherical BMK Test')
     else:
@@ -771,6 +782,8 @@ def main():
     ax.set_ylim(1e-14, 1e4)
     ax.set_yscale('log')
     ax.set_xscale('log')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
     ax.set_xlabel(r'$t_{\rm obs} [\rm day]$')
     ax.set_ylabel(r'$\rm Flux \ Density \ [\rm mJy]$')
     ax.legend()
