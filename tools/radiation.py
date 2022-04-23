@@ -64,20 +64,19 @@ def generate_mesh(args: argparse.ArgumentParser, mesh: dict):
     else:
         dlogr         = np.log10(r.max()/r.min())/(r.size - 1)
         theta_max     = np.pi / 2 if not args.full_sphere else np.pi
-        theta_samples = int(theta_max / dlogr + 1)
+        theta_samples = int(theta_max / dlogr + 1) if not args.theta_samples else args.theta_samples 
         theta         = np.linspace(0.0, theta_max, theta_samples)
         
     if 'phi' in mesh:
         ndim += 1
         phi  = mesh['phi']
     else:
-        phi_samples = 10
-        phi = np.linspace(0.0, 2.0 * np.pi, phi_samples)
+        phi = np.linspace(0.0, 2.0 * np.pi, args.phi_samples)
 
     thetta, phii, rr = np.meshgrid(theta, phi, r)
     
     return rr, thetta, phii, ndim
-# Define function for string formatting of scientific notation
+
 def get_tbin_edges(
     args: argparse.ArgumentParser, 
     file_reader: Callable,
@@ -106,14 +105,16 @@ def get_tbin_edges(
     # Place observer along chosen axis
     theta_obs_rad = np.deg2rad(args.theta_obs)
     theta_obs     = theta_obs_rad * np.ones_like(thetta)
-    obs_hat       = np.array([np.sin(theta_obs)*np.cos(phii), np.sin(theta_obs) * np.sin(phii), np.cos(theta_obs)])
-
-    t_obs_min  = t_beg - rr0 * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
-    t_obs_max  = t_end - rrf * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
+    obs_hat       = np.array([np.sin(theta_obs), np.zeros_like(thetta), np.cos(theta_obs)])
+    r_dot_nhat    = vector_dotproduct(rhat, obs_hat)
+    
+    t_obs_min  = t_beg - rr0 * length_scale * r_dot_nhat / const.c.cgs
+    t_obs_max  = t_end - rrf * length_scale * r_dot_nhat / const.c.cgs
 
     theta_idx  = util.find_nearest(thetta[0,:,0], theta_obs_rad)[0]
     t_obs_beam = t_obs_min[0][theta_idx]
     t_obs_beam = t_obs_beam[t_obs_beam > 0]
+    
     tmin       = (t_obs_beam.min()).to(units.day)
     tmax       = (t_obs_max[t_obs_max > 0].max()).to(units.day)
     
@@ -491,7 +492,6 @@ def sari_piran_narayan_99(
     gamma_min  = calc_gamma_min(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
     gamma_crit = calc_critical_lorentz(bfield, t_emitter)                # Critical Lorentz factor of electrons
     
-    r = mesh['r']
     d = 1e28 * units.cm
     if case == 0:
         rr, thetta, phii, ndim = generate_mesh(args, mesh)
@@ -504,7 +504,7 @@ def sari_piran_narayan_99(
         theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(thetta)
         obs_hat    = np.array([np.sin(theta_obs)*np.cos(phii), np.sin(theta_obs) * np.sin(phii), np.cos(theta_obs)])
         
-        # store everything in a dictionary that is constant
+        # Store everything in a dictionary that is constant
         storage['rhat']    = rhat 
         storage['obs_hat'] = obs_hat 
         storage['ndim']    = ndim
@@ -705,6 +705,8 @@ def main():
     parser.add_argument('--save', help='file name to save fig', dest='save', default=None, type=str)
     parser.add_argument('--tex', help='true if want latex rendering on figs', default=False, action='store_true')
     parser.add_argument('--ntbins', dest='ntbins', type=int, help='number of time bins', default=50)
+    parser.add_argument('--theta_samples', dest='theta_samples', type=int, help='number of theta_samples', default=None)
+    parser.add_argument('--phi_samples', dest='phi_samples', type=int, help='number of phi', default=10)
     args = parser.parse_args()
 
     if args.tex:
