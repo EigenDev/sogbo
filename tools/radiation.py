@@ -491,8 +491,6 @@ def sari_piran_narayan_99(
         # The frequency we see is doppler boosted, so account for that
         nu_boost = freq * units.Hz / delta_doppler
         ff = calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
-        
-        fno_convert = ff / (4.0 * np.pi * d**2)
         ff = (ff / (4.0 * np.pi * d **2)).to(units.Jy)
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(time_bins[:-1]):
