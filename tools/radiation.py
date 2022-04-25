@@ -389,30 +389,6 @@ def calc_powerlaw_flux(
             f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
             f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
             f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
-            
-            # print("a")
-            # r = mesh['r']
-            # for ridx in range(r.size):
-            #     nu_crit = nu_c[ridx]
-            #     nu_min  = nu_m[ridx]
-            #     cooling = 'slow' if nu_crit > nu_min else 'fast'
-            #     if cooling == 'fast':
-            #         if nu_crit > nu:
-            #             f_nu[:, :, ridx]  *= (nu/nu_crit)**(1.0/3.0)
-            #         elif nu > nu_min:
-            #              f_nu[:, :, ridx] *= (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)
-            #         else:
-            #             f_nu[:, :, ridx]  *= (nu/nu_crit)**(-0.5) 
-            #     else:
-            #         if nu_min > nu:
-            #             f_nu[:, :, ridx] *= (nu/nu_min)**(1.0/3.0)
-            #         elif nu > nu_crit:
-            #             f_nu[:, :, ridx] *= (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p) 
-            #         else:
-            #             f_nu[:, :, ridx] *= (nu/nu_min) **(-0.5*(p-1.0))
-            # print(f_nu[0])
-            # print("b")
-            # zzz = input('')
         else:
             # Collapse the masks into their respective 2D symmetries
             slow_mask1 = slow_mask1[0]
@@ -429,32 +405,6 @@ def calc_powerlaw_flux(
             f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
             f_nu[:, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
             f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
-            # print("a")
-            # theta        = mesh['theta']
-            # r            = mesh['r']
-            # for tidx in range(theta.size):
-            #     for ridx in range(r.size):
-            #         nu_crit = nu_c[tidx, ridx]
-            #         nu_min  = nu_m[tidx, ridx]
-            #         cooling = 'slow' if nu_crit > nu_min else 'fast'
-            #         zone = tidx, ridx
-            #         if cooling == 'fast':
-            #             if nu_crit > nu:
-            #                 f_nu[:, zone]  *= (nu/nu_crit)**(1.0/3.0)
-            #             elif nu > nu_min:
-            #                 f_nu[:, zone]  *= (nu_min/nu_crit)**(-0.5)*(nu/nu_min)**(-0.5 * p)
-            #             else:
-            #                 f_nu[:, zone]  *= (nu/nu_crit)**(-0.5) 
-            #         else:
-            #             if nu_min > nu:
-            #                 f_nu[:, zone] *= (nu/nu_min)**(1.0/3.0)
-            #             elif nu > nu_crit:
-            #                 f_nu[:, zone] *= (nu_crit/nu_min)**(-0.5 * (p-1))*(nu/nu_crit)**(-0.5 * p) 
-            #             else:
-            #                 f_nu[:, zone] *= (nu/nu_min) **(-0.5*(p-1.0))
-            # print(f_nu[0])
-            # print("b")
-            # zzz = input('')
         return f_nu 
     
 def sari_piran_narayan_99(
@@ -484,7 +434,6 @@ def sari_piran_narayan_99(
     
     rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)   # internal energy density
     bfield        = calc_bfield_shock(rho_einternal, eps_b)              # magnetic field based on equipartition
-    ub            = bfield**2 / (8.0 * np.pi)                            # magnetic energy density
     n_e_proper    = fields['rho'] * rho_scale / const.m_p.cgs            # electron number density
     dt            = args.dt * time_scale                                 # step size between checkpoints
     nu_g          = calc_gyration_frequency(bfield)                      # gyration frequency
@@ -498,12 +447,13 @@ def sari_piran_narayan_99(
 
         # Calc cell volumes
         dvolume = util.calc_cell_volume3D(rr, thetta, phii) * length_scale ** 3
+        # dvolume = util.calc_cell_volume1D(rr[0,0,:]) * length_scale ** 3
         rhat    = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector                                                                                 # electron particle number index   
         
         # Place observer along chosen axis
         theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(thetta)
         obs_hat    = np.array([np.sin(theta_obs)*np.cos(phii), np.sin(theta_obs) * np.sin(phii), np.cos(theta_obs)])
-        obs_idx = util.find_nearest(thetta[0,:,0], np.deg2rad(args.theta_obs))[0]
+        obs_idx    = util.find_nearest(thetta[0,:,0], np.deg2rad(args.theta_obs))[0]
         storage['obs_idx'] = obs_idx
         # Store everything in a dictionary that is constant
         storage['rhat']    = rhat 
@@ -536,24 +486,17 @@ def sari_piran_narayan_99(
     dt_day               = dt.to(units.day)
     t_obs                = t_obs.to(units.day)
     
-    
     # loop through the given frequencies and put them in their respective locations in dictionary
     for freq in args.nu:
+        # The frequency we see is doppler boosted, so account for that
         nu_boost = freq * units.Hz / delta_doppler
         ff = calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
         
-        # print(ff[0][0] / storage['dvolume'] / delta_doppler ** 2)
-        # zzz = input('')
+        fno_convert = ff / (4.0 * np.pi * d**2)
         ff = (ff / (4.0 * np.pi * d **2)).to(units.Jy)
-
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(time_bins[:-1]):
             t2 = time_bins[idx + 1]
-            
-            # if idx == 0:
-            #     test = ff[(t_obs > t1) & (t_obs < t2)]
-            #     print(test.sum())
-            #     zzz = input('')
             flux_array[freq][idx] += dt_day / dt_obs[idx] * ff[(t_obs > t1) & (t_obs < t2)].sum()
         
 def log_events(
@@ -607,7 +550,7 @@ def log_events(
     rhat          = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector
 
     rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)                                    # internal energy density
-    bfield        = calc_bfield_shock_other(rho_einternal, eps_b)                                            # magnetic field based on equipartition
+    bfield        = calc_bfield_shock_other(rho_einternal, eps_b)                                         # magnetic field based on equipartition
     ub            = bfield**2 / (8.0 * np.pi)                                                             # magnetic energy density
     n_e           = fields['rho'] * w * rho_scale / const.m_p.cgs                                         # electron number density
         
@@ -768,7 +711,7 @@ def main():
             freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
     
         style = linestyles[nidx % len(args.nu)]
-        ax.plot(time_bins[:-1], 1e-3 * flux_per_tbin[freq], linestyle=style, label=r'$\nu={} \rm Hz$'.format(freq_label))
+        ax.plot(time_bins[:-1], 1e3 * flux_per_tbin[freq], linestyle=style, label=r'$\nu={} \rm Hz$'.format(freq_label))
     
 
     tbound1 = time_bins[0]
