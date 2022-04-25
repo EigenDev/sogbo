@@ -87,7 +87,7 @@ def calc_cell_volume3D(r: np.ndarray, theta: np.ndarray, phi: np.ndarray) -> np.
     rvertices = np.sqrt(r[:,:, 1:] * r[:,:, :-1])
     rvertices = np.insert(rvertices,  0, r[:,:, 0], axis=2)
     rvertices = np.insert(rvertices, rvertices.shape[2], r[:,:, -1], axis=2)
-    dr        = rvertices[:,:, 1:] - rvertices[:,:, :-1]
+    dr        = rvertices[:, :, 1:] - rvertices[:, :, :-1]
     
     dV = (1.0/3.0) * (rvertices[:,:, 1:]**3 - rvertices[:,:, :-1]**3) * dphi * dcos
     return dV
@@ -395,7 +395,28 @@ def prims2var(fields: dict, var: str) -> np.ndarray:
     elif var =='sp_enthalpy':
         # Specific enthalpy
         return h - 1.0  
+
+def read_example_afterglow_data(filename: str) -> dict:
+    """
+    Reads afterglow data from afterglow library (van Eerten et al. 2009)
+    """
+    with h5py.File(filename, "r") as hf:
+        nu   = hf.get('nu')[:]   * units.Hz
+        t    = hf.get('t')[:]    * units.s 
+        fnu  = hf.get('fnu')[:]  * 1e26 * units.Jy 
+        fnu2 = hf.get('fnu2')[:] * 1e26 * units.Jy 
+        
+    tday = t.to(units.day)
+    data_dict = {}
+    data_dict['tday'] = tday 
+    data_dict['freq'] = nu 
+    data_dict['light_curve'] = {nu_val: fnu[i, :] for i, nu_val in enumerate(nu)}
+    data_dict['light_curve_pcj'] = {nu_val: fnu[i, :] + fnu2[i, :] for i, nu_val in enumerate(nu)}
+    data_dict['spectra'] = {tday_val: fnu[:, i] for i, tday_val in enumerate(tday)}
+    data_dict['spectra_pcj'] = {tday_val: fnu2[:, i] for i, tday_val in enumerate(tday)}
     
+    return data_dict
+
 def find_nearest(arr: list, val: float) -> int:
     """ Return nearest index to val in array"""
     arr = np.asanyarray(arr)
@@ -406,7 +427,3 @@ def find_nearest(arr: list, val: float) -> int:
         x   = np.abs(arr - val)
         idx = np.where(x == x.min())
         return idx 
-    
-def fill_below_intersec(x: np.ndarray, y: np.ndarray, constraint: float, color: float) -> None:
-    ind = find_nearest(y, constraint)[0]
-    plt.fill_between(x[ind:],y[ind:], color=color, alpha=0.1, interpolate=True)

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import utility as util 
 import argparse
 import os 
+import cycler
 import sys
 
 from typing import Callable
@@ -383,11 +384,11 @@ def calc_powerlaw_flux(
             fast_mask3 = fast_mask3[0][0]
             
             f_nu[:, :, slow_mask1] *= (nu[:, :, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
             f_nu[:, :, slow_mask3] *= (nu[:, :, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
             
             f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
             f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
         else:
             # Collapse the masks into their respective 2D symmetries
@@ -399,11 +400,11 @@ def calc_powerlaw_flux(
             fast_mask2 = fast_mask2[0]
             fast_mask3 = fast_mask3[0]
             f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, slow_mask2] *= (nu_c[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
             f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
             
             f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, fast_mask2] *= (nu_m[fast_mask2] / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
             f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
         return f_nu 
     
@@ -447,7 +448,6 @@ def sari_piran_narayan_99(
 
         # Calc cell volumes
         dvolume = util.calc_cell_volume3D(rr, thetta, phii) * length_scale ** 3
-        # dvolume = util.calc_cell_volume1D(rr[0,0,:]) * length_scale ** 3
         rhat    = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector                                                                                 # electron particle number index   
         
         # Place observer along chosen axis
@@ -471,7 +471,6 @@ def sari_piran_narayan_99(
     dvolume  = storage['dvolume']
     
     # Calculate the maximum flux based on the average bolometric power per electron
-    alpha             = 0.5 * (p - 1.0)                                             # Spectral power law index (might not need after all)
     nu_c              = calc_nu(gamma_crit, nu_g)                                   # Critical frequency
     nu_m              = calc_nu(gamma_min, nu_g)                                    # Minimum frequency
     delta_doppler     = calc_doppler_delta(w, beta_vector=beta_vec, n_hat=obs_hat)  # Doppler factor
@@ -480,7 +479,6 @@ def sari_piran_narayan_99(
     flux_max          = total_power * delta_doppler ** (2.0)                        # Maximum flux 
     
     storage['t_obs']     = t_obs
-    storage['t_max']     = t_obs.max()
     storage['t_prime']   = t_prime
     dt_obs               = time_bins[1:] - time_bins[:-1]
     dt_day               = dt.to(units.day)
@@ -492,6 +490,7 @@ def sari_piran_narayan_99(
         nu_boost = freq * units.Hz / delta_doppler
         ff = calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
         ff = (ff / (4.0 * np.pi * d **2)).to(units.Jy)
+        
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(time_bins[:-1]):
             t2 = time_bins[idx + 1]
@@ -659,6 +658,7 @@ def main():
     parser.add_argument('--ntbins', dest='ntbins', type=int, help='number of time bins', default=50)
     parser.add_argument('--theta_samples', dest='theta_samples', type=int, help='number of theta_samples', default=None)
     parser.add_argument('--phi_samples', dest='phi_samples', type=int, help='number of phi', default=10)
+    parser.add_argument('--example_curve', dest='example_curve', type=str, help='data file from example light curves', default=None)
     args = parser.parse_args()
 
     if args.tex:
@@ -692,13 +692,16 @@ def main():
     events_list   = np.zeros(shape=(len(files), 2))
     storage       = {}
     
-    linestyles = ['-','--','-.',':'] # list of basic linestyles
+    colors     = ['c', 'y', 'm', 'k'] # list of basic colors
+    linestyles = ['-','--','-.',':']  # list of basic linestyles
+
+    
     for idx, file in enumerate(files):
         fields, setup, mesh = file_reader(file)
         sari_piran_narayan_99(fields, args, time_bins=time_bins, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
         print(f"Processed file {file}", flush=True)
     
-    t0 = args.t0 * time_scale.to(units.day)
+    
     # time_bins *= 10**np.log10((t0 + time_bins) / time_bins)
     for nidx, freq in enumerate(args.nu):
         power_of_ten = int(np.floor(np.log10(freq)))
@@ -709,7 +712,13 @@ def main():
             freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
     
         style = linestyles[nidx % len(args.nu)]
-        ax.plot(time_bins[:-1], 1e3 * flux_per_tbin[freq], linestyle=style, label=r'$\nu={} \rm Hz$'.format(freq_label))
+        color = colors[nidx % len(args.nu)]
+        ax.plot(time_bins[:-1], 1e3 * flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+        
+        if args.example_curve is not None:
+            example_data = util.read_example_afterglow_data(args.example_curve)
+            nu_unit = freq * units.Hz
+            ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.2)
     
 
     tbound1 = time_bins[0]
