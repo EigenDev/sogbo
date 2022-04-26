@@ -97,13 +97,23 @@ def calc_enthalpy(fields: dict) -> np.ndarray:
     return 1.0 + fields['p']*fields['ad_gamma'] / (fields['rho'] * (fields['ad_gamma'] - 1.0))
     
 def calc_lorentz_gamma(fields: dict) -> np.ndarray:
+    """
+    The Lorentz factor of the full fiel 
+    """
     return (1.0 + fields['gamma_beta']**2)**0.5
 
 def calc_beta(fields: dict) -> np.ndarray:
+    """
+    Calculate speed of body with respect to speed of light 
+    """
     W = calc_lorentz_gamma(fields)
     return (1.0 - 1.0 / W**2)**0.5
 
 def get_field_str(args: argparse.ArgumentParser) -> str:
+    """
+    Convert the args.field variable into a human readable string. 
+    Supports Greek letters 
+    """
     field_str_list = []
     for field in args.field:
         if field == 'rho' or field == 'D':
@@ -153,12 +163,10 @@ def calc_beta(fields: dict) -> np.ndarray:
     W = calc_lorentz_gamma(fields)
     return (1.0 - 1.0 / W**2)**0.5
 
-def calc_bfield_shock(fields: dict, eb: float = 0.1) -> np.ndarray:
-    W = calc_lorentz_gamma(fields)
-    comoving_density = fields['rho'] * W *  rho_scale
-    return (32 * np.pi *  eb * comoving_density)**0.5 * W * const.c.cgs 
-
 def read_2d_file(filename: str) -> Union[dict,dict,dict]:
+    """
+    Read in hydro data from 2D checkpoint file 
+    """
     setup  = {}
     fields = {}
     is_cartesian = False
@@ -299,6 +307,9 @@ def read_2d_file(filename: str) -> Union[dict,dict,dict]:
     return fields, setup, mesh 
 
 def read_1d_file(filename: str) -> dict:
+    """
+    Read in the hydro data from 1D checkpoint 
+    """
     is_linspace = False
     ofield = {}
     setups = {}
@@ -366,6 +377,9 @@ def read_1d_file(filename: str) -> dict:
     return ofield, setups, mesh
 
 def prims2var(fields: dict, var: str) -> np.ndarray:
+    """
+    Converts the primitives to the specified variable
+    """
     h = calc_enthalpy(fields)
     W = calc_lorentz_gamma(fields)
     if var == 'D':
@@ -399,7 +413,7 @@ def prims2var(fields: dict, var: str) -> np.ndarray:
 
 def read_example_afterglow_data(filename: str) -> dict:
     """
-    Reads afterglow data from afterglow library (van Eerten et al. 2009)
+    Reads afterglow data from afterglow library (Zhang and MacFadyen 2009 or van Eerten et al. 2010)
     """
     with h5py.File(filename, "r") as hf:
         nu   = hf.get('nu')[:]   * units.Hz
