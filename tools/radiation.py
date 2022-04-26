@@ -11,6 +11,11 @@ import os
 import cycler
 import sys
 
+try:
+    import cmasher as cmr 
+except ImportError:
+    print("cannot find cmasher module, using basic matplotlib colors insteads")
+    
 from typing import Callable
 
 # FONT SIZES
@@ -659,6 +664,8 @@ def main():
     parser.add_argument('--theta_samples', dest='theta_samples', type=int, help='number of theta_samples', default=None)
     parser.add_argument('--phi_samples', dest='phi_samples', type=int, help='number of phi', default=10)
     parser.add_argument('--example_curve', dest='example_curve', type=str, help='data file from example light curves', default=None)
+    parser.add_argument('--cmap', help='colormap scheme for light curves', dest='cmap', default=None, type=str)
+    parser.add_argument('--clims', help='color value limits', dest='clims', nargs='+', type=float, default=[None, None])
     args = parser.parse_args()
 
     if args.tex:
@@ -692,7 +699,14 @@ def main():
     events_list   = np.zeros(shape=(len(files), 2))
     storage       = {}
     
-    colors     = ['c', 'y', 'm', 'k'] # list of basic colors
+    if args.cmap is not None:
+        vmin, vmax = args.clims 
+        cinterval = np.linspace(0, 1, len(args.nu))
+        cmap      = plt.cm.get_cmap(args.cmap)
+        colors    = util.get_colors(cinterval, cmap, vmin, vmax)
+    else:
+        colors     = ['c', 'y', 'm', 'k'] # list of basic colors
+        
     linestyles = ['-','--','-.',':']  # list of basic linestyles
 
     
