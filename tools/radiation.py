@@ -181,7 +181,7 @@ def calc_gyration_frequency(b_field: float) -> float:
     the gyration frequency 
     """
     # frequency_for_unit_field = (const.e.gauss * 1.0 * units.gauss) / (2.0 * np.pi * const.m_e.cgs * const.c.cgs)
-    frequency_for_unit_field = (3.0 / 16.0) * (const.e.gauss * 1.0 * units.gauss) / (const.m_e.cgs * const.c.cgs)
+    frequency_for_unit_field = (3.0 / 4.0 / np.pi) * (const.e.gauss * 1.0 * units.gauss) / (const.m_e.cgs * const.c.cgs)
     return frequency_for_unit_field.value  * b_field.value * units.Hz
 
 def calc_total_synch_power(lorentz_gamma: float, ub: float, beta: float) -> float:
@@ -329,10 +329,12 @@ def calc_max_power_per_frequency(bfield: float) -> float:
     return (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (3.0 * const.e.gauss) * bfield
 
 def calc_emissivity(bfield: float, n: float, p: float) -> float:
-    """Calculate the peak emissivity per frequency per equation (1) in
+    """Calculate the peak emissivity per frequency per equation (A17) in
     https://iopscience.iop.org/article/10.1088/0004-637X/722/1/235/pdf
     """ 
-    return 0.88 * (16.0/3.0)**2 * (p - 1) / (3.0 * p - 1.0) * (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (8.0 * np.pi * const.e.gauss) * n * bfield
+    # eps_m = 0.88 * (16.0/3.0)**2 * (p - 1) / (3.0 * p - 1.0) * (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (8.0 * np.pi * const.e.gauss) * n * bfield
+    eps_m = (9.6323/ 8.0 / np.pi) * (p - 1.0) / (3.0 * p - 1.0) * (3.0)**0.5 * const.e.gauss**3 / (const.m_e.cgs * const.c.cgs**2) * n * bfield
+    return eps_m
 
 def calc_gamma_min(eps_e: float,e_thermal: float, n: float, p: float) -> float:
     """
@@ -732,7 +734,7 @@ def main():
         if args.example_curve is not None:
             example_data = util.read_example_afterglow_data(args.example_curve)
             nu_unit = freq * units.Hz
-            ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.2)
+            ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.4)
     
 
     tbound1 = time_bins[0]
