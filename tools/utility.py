@@ -7,7 +7,8 @@ import astropy.constants as const
 import astropy.units as units
 import numpy as np 
 import argparse 
-
+import matplotlib.pyplot as plt 
+    
 from typing import Union
 
 # FONT SIZES
@@ -417,6 +418,24 @@ def read_example_afterglow_data(filename: str) -> dict:
     
     return data_dict
 
+def get_colors(interval: np.ndarray, cmap: plt.cm, vmin: float = None, vmax: float = None):
+    """
+    Return array of rgba colors for a given matplotlib colormap
+    
+    Parameters
+    -------------------------
+    interval: interval range for colormarp min and max 
+    cmap: the matplotlib colormap instnace
+    vmin: minimum for colormap 
+    vmax: maximum for colormap 
+    
+    Returns
+    -------------------------
+    arr: the colormap array generate by the user conditions
+    """
+    norm = plt.Normalize(vmin, vmax)
+    return cmap(norm(interval))
+    
 def find_nearest(arr: list, val: float) -> int:
     """ Return nearest index to val in array"""
     arr = np.asanyarray(arr)
