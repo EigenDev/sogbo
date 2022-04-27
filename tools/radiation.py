@@ -23,7 +23,7 @@ SMALL_SIZE   = 8
 DEFAULT_SIZE = 10
 BIGGER_SIZE  = 12
 
-if 'hydro_scales' in sys.argv:
+if '--hydro_scales' in sys.argv:
     #================================
     #   Hydro scales
     #================================
@@ -35,6 +35,9 @@ if 'hydro_scales' in sys.argv:
     pre_scale     = e_scale / (4./3. * np.pi * R_0**3)
     time_scale    = R_0 / c
     length_scale  = R_0
+    
+    # remove the arg once finishes
+    sys.argv.remove('--hydro_scales')
 else:
     #==============
     # BMK Scales
@@ -115,12 +118,15 @@ def get_tbin_edges(
     obs_hat       = np.array([np.sin(theta_obs), np.zeros_like(thetta), np.cos(theta_obs)])
     r_dot_nhat    = vector_dotproduct(rhat, obs_hat)
     
+    if t_beg == 0:
+        t_beg = args.t0 * time_scale
+        
     t_obs_min  = t_beg - rr0 * time_scale * r_dot_nhat
     t_obs_max  = t_end - rrf * time_scale * r_dot_nhat
 
     theta_idx  = util.find_nearest(thetta[0,:,0], theta_obs_rad)[0]
     t_obs_beam = t_obs_min[0][theta_idx]
-    t_obs_beam = t_obs_beam[t_obs_beam > 0]
+    t_obs_beam = t_obs_beam[t_obs_beam >= 0]
     
     tmin       = (t_obs_beam.min()).to(units.day)
     tmax       = (t_obs_max[t_obs_max > 0].max()).to(units.day)
@@ -180,7 +186,6 @@ def calc_gyration_frequency(b_field: float) -> float:
     ---------------------
     the gyration frequency 
     """
-    # frequency_for_unit_field = (const.e.gauss * 1.0 * units.gauss) / (2.0 * np.pi * const.m_e.cgs * const.c.cgs)
     frequency_for_unit_field = (3.0 / 4.0 / np.pi) * (const.e.gauss * 1.0 * units.gauss) / (const.m_e.cgs * const.c.cgs)
     return frequency_for_unit_field.value  * b_field.value * units.Hz
 
@@ -317,7 +322,7 @@ def calc_doppler_delta(lorentz_gamma: float, beta_vector: np.ndarray, n_hat: np.
     return 1.0 / (lorentz_gamma * (1.0  - vector_dotproduct(beta_vector, n_hat)))
 
 def calc_nu(gamma_e: float, nu_g: float):
-    """Calculate frequency as function of lorentz_factor"""
+    """Calculate the synchrotron frequency as function of lorentz_factor"""
     return gamma_e ** 2 * nu_g 
 
 def calc_critical_lorentz(bfield: float, time: float)-> float:
@@ -329,14 +334,13 @@ def calc_max_power_per_frequency(bfield: float) -> float:
     return (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (3.0 * const.e.gauss) * bfield
 
 def calc_emissivity(bfield: float, n: float, p: float) -> float:
-    """Calculate the peak emissivity per frequency per equation (A17) in
-    https://iopscience.iop.org/article/10.1088/0004-637X/722/1/235/pdf
+    """Calculate the peak emissivity per frequency per equation (A3) in
+    https://iopscience.iop.org/article/10.1088/0004-637X/749/1/44/pdf
     """ 
-    # eps_m = 0.88 * (16.0/3.0)**2 * (p - 1) / (3.0 * p - 1.0) * (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (8.0 * np.pi * const.e.gauss) * n * bfield
     eps_m = (9.6323/ 8.0 / np.pi) * (p - 1.0) / (3.0 * p - 1.0) * (3.0)**0.5 * const.e.gauss**3 / (const.m_e.cgs * const.c.cgs**2) * n * bfield
     return eps_m
 
-def calc_gamma_min(eps_e: float,e_thermal: float, n: float, p: float) -> float:
+def calc_minimum_lorentz(eps_e: float,e_thermal: float, n: float, p: float) -> float:
     """
     Calculate the minimum lorentz factor of electrons in the distribution
     
@@ -380,6 +384,8 @@ def calc_powerlaw_flux(
         slow_mask2   = slow_cool & slow_break2
         slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
         
+        # print(nu[0])
+        # zzz = input('')
         if ndim == 1:
             # Collapse the masks into their respective 1D symmetries
             slow_mask1 = slow_mask1[0][0]
@@ -446,7 +452,7 @@ def sari_piran_narayan_99(
     dt            = args.dt * time_scale                                 # step size between checkpoints
     nu_g          = calc_gyration_frequency(bfield)                      # gyration frequency
     
-    gamma_min  = calc_gamma_min(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
+    gamma_min  = calc_minimum_lorentz(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
     gamma_crit = calc_critical_lorentz(bfield, t_emitter)                # Critical Lorentz factor of electrons
     
     d = 1e28 * units.cm
