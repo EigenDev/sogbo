@@ -10,6 +10,7 @@ import argparse
 import os 
 import cycler
 import sys
+import h5py 
 
 try:
     import cmasher as cmr 
@@ -356,70 +357,69 @@ def calc_minimum_lorentz(eps_e: float,e_thermal: float, n: float, p: float) -> f
     return eps_e * (p - 2.0) / (p - 1.0) * e_thermal / (n * const.m_e.cgs * const.c.cgs**2)
 
 def calc_powerlaw_flux(
-        mesh:     dict,
-        flux_max: float, 
-        p:        float,
-        nu:       float, 
-        nu_c:     float, 
-        nu_m:     float, 
-        ndim:     int = 1) -> float:
-        """
-        ---------------------------------------
-        Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
-        ---------------------------------------
-        """
-        f_nu = flux_max.copy()
-        slow_cool    = nu_c > nu_m
-        fast_cool    = nu_c < nu_m
+    mesh:     dict,
+    flux_max: float, 
+    p:        float,
+    nu:       float, 
+    nu_c:     float, 
+    nu_m:     float, 
+    ndim:     int = 1) -> float:
+    """
+    ---------------------------------------
+    Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
+    ---------------------------------------
+    """
+    f_nu = flux_max.copy()
+    slow_cool    = nu_c > nu_m
+    fast_cool    = nu_c < nu_m
+    
+    fast_break1  = nu_c > nu 
+    fast_break2  = nu   > nu_m
+    fast_mask1   = fast_cool & fast_break1 
+    fast_mask2   = fast_cool & fast_break2
+    fast_mask3   = fast_cool & (fast_break1 == False) & (fast_break2 == False)
+    
+    slow_break1  = nu_m > nu 
+    slow_break2  = nu   > nu_c
+    slow_mask1   = slow_cool & slow_break1
+    slow_mask2   = slow_cool & slow_break2
+    slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
+    
+    if ndim == 1:
+        # Collapse the masks into their respective 1D symmetries
+        slow_mask1 = slow_mask1[0][0]
+        slow_mask2 = slow_mask2[0][0]
+        slow_mask3 = slow_mask3[0][0]
         
-        fast_break1  = nu_c > nu 
-        fast_break2  = nu   > nu_m
-        fast_mask1   = fast_cool & fast_break1 
-        fast_mask2   = fast_cool & fast_break2
-        fast_mask3   = fast_cool & (fast_break1 == False) & (fast_break2 == False)
+        fast_mask1 = fast_mask1[0][0]
+        fast_mask2 = fast_mask2[0][0]
+        fast_mask3 = fast_mask3[0][0]
         
-        slow_break1  = nu_m > nu 
-        slow_break2  = nu   > nu_c
-        slow_mask1   = slow_cool & slow_break1
-        slow_mask2   = slow_cool & slow_break2
-        slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
+        f_nu[:, :, slow_mask1] *= (nu[:, :, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
+        f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+        f_nu[:, :, slow_mask3] *= (nu[:, :, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
         
-        # print(nu[0])
-        # zzz = input('')
-        if ndim == 1:
-            # Collapse the masks into their respective 1D symmetries
-            slow_mask1 = slow_mask1[0][0]
-            slow_mask2 = slow_mask2[0][0]
-            slow_mask3 = slow_mask3[0][0]
-            
-            fast_mask1 = fast_mask1[0][0]
-            fast_mask2 = fast_mask2[0][0]
-            fast_mask3 = fast_mask3[0][0]
-            
-            f_nu[:, :, slow_mask1] *= (nu[:, :, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-            f_nu[:, :, slow_mask3] *= (nu[:, :, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
-            
-            f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-            f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
-        else:
-            # Collapse the masks into their respective 2D symmetries
-            slow_mask1 = slow_mask1[0]
-            slow_mask2 = slow_mask2[0]
-            slow_mask3 = slow_mask3[0]
-            
-            fast_mask1 = fast_mask1[0]
-            fast_mask2 = fast_mask2[0]
-            fast_mask3 = fast_mask3[0]
-            f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-            f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
-            
-            f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-            f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
-        return f_nu 
+        f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
+        f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+        f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
+    else:
+        # Collapse the masks into their respective 2D symmetries
+        slow_mask1 = slow_mask1[0]
+        slow_mask2 = slow_mask2[0]
+        slow_mask3 = slow_mask3[0]
+        
+        fast_mask1 = fast_mask1[0]
+        fast_mask2 = fast_mask2[0]
+        fast_mask3 = fast_mask3[0]
+        f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
+        f_nu[:, slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+        f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+        
+        f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
+        f_nu[:, fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+        f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
+        
+    return f_nu 
     
 def sari_piran_narayan_99(
     fields:         dict, 
@@ -446,16 +446,17 @@ def sari_piran_narayan_99(
     eps_b = 0.1  # Magnetic field fraction of internal energy 
     eps_e = 0.1  # shocked electrons fraction of internal energy
     
-    rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)   # internal energy density
-    bfield        = calc_bfield_shock(rho_einternal, eps_b)              # magnetic field based on equipartition
-    n_e_proper    = fields['rho'] * rho_scale / const.m_p.cgs            # electron number density
-    dt            = args.dt * time_scale                                 # step size between checkpoints
-    nu_g          = calc_gyration_frequency(bfield)                      # gyration frequency
-    
+    rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)            # internal energy density
+    bfield        = calc_bfield_shock(rho_einternal, eps_b)                       # magnetic field based on equipartition
+    n_e_proper    = fields['rho'] * rho_scale / const.m_p.cgs                     # electron number density
+    dt            = args.dt * time_scale                                          # step size between checkpoints
+    nu_g          = calc_gyration_frequency(bfield)                               # gyration frequency
+    d             = 1e28 * units.cm                                               # distance to source
     gamma_min  = calc_minimum_lorentz(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
-    gamma_crit = calc_critical_lorentz(bfield, t_emitter)                # Critical Lorentz factor of electrons
+    gamma_crit = calc_critical_lorentz(bfield, t_emitter)                         # Critical Lorentz factor of electrons
     
-    d = 1e28 * units.cm
+    
+    # no moving mesh yet, so this is fine
     if case == 0:
         rr, thetta, phii, ndim = generate_mesh(args, mesh)
 
@@ -493,16 +494,19 @@ def sari_piran_narayan_99(
     
     storage['t_obs']     = t_obs
     storage['t_prime']   = t_prime
+    t_obs                = t_obs.to(units.day)
+    
+    # the effective lifetime of the emitting cell must be accounted for
     dt_obs               = time_bins[1:] - time_bins[:-1]
     dt_day               = dt.to(units.day)
-    t_obs                = t_obs.to(units.day)
     
     # loop through the given frequencies and put them in their respective locations in dictionary
     for freq in args.nu:
         # The frequency we see is doppler boosted, so account for that
         nu_boost = freq * units.Hz / delta_doppler
+        
         ff = calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
-        ff = (ff / (4.0 * np.pi * d **2)).to(units.Jy)
+        ff = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
         
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(time_bins[:-1]):
@@ -723,8 +727,6 @@ def main():
         sari_piran_narayan_99(fields, args, time_bins=time_bins, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
         print(f"Processed file {file}", flush=True)
     
-    
-    # time_bins *= 10**np.log10((t0 + time_bins) / time_bins)
     for nidx, freq in enumerate(args.nu):
         power_of_ten = int(np.floor(np.log10(freq)))
         front_part   = freq / 10**power_of_ten 
@@ -735,7 +737,7 @@ def main():
     
         style = linestyles[nidx % len(args.nu)]
         color = colors[nidx % len(args.nu)]
-        ax.plot(time_bins[:-1], 1e3 * flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+        ax.plot(time_bins[:-1], flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
         
         if args.example_curve is not None:
             example_data = util.read_example_afterglow_data(args.example_curve)
@@ -744,7 +746,7 @@ def main():
     
 
     tbound1 = time_bins[0]
-    tbound2 = time_bins[-2]
+    tbound2 = time_bins[-1]
     if args.dim == 1:
         ax.set_title('Light curve for spherical BMK Test')
     else:
