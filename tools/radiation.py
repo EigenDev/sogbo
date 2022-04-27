@@ -346,7 +346,7 @@ def calc_minimum_lorentz(eps_e: float,e_thermal: float, n: float, p: float) -> f
     
     Params:
     ------------------------------
-    eps_e:              fraction of internal energy due to electric field
+    eps_e:              fraction of internal energy due to shocked electrons
     p:                  spectral electron number index 
     
     Return:
@@ -444,7 +444,7 @@ def sari_piran_narayan_99(
     #================================================================
     p     = 2.5  # Electron number index
     eps_b = 0.1  # Magnetic field fraction of internal energy 
-    eps_e = 0.1  # Electric field fraction of internal energy
+    eps_e = 0.1  # shocked electrons fraction of internal energy
     
     rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)   # internal energy density
     bfield        = calc_bfield_shock(rho_einternal, eps_b)              # magnetic field based on equipartition
