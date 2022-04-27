@@ -424,11 +424,11 @@ def calc_powerlaw_flux(
 def sari_piran_narayan_99(
     fields:         dict, 
     args:           argparse.ArgumentParser, 
-    time_bins:      np.ndarray,
+    tbin_edges:     np.ndarray,
     flux_array:     np.ndarray,
     mesh:           dict, 
     dset:           dict, 
-    storage:           dict,
+    storage:        dict,
     overplot:       bool=False, 
     subplot:        bool=False, 
     ax:             plt.Axes=None, 
@@ -497,7 +497,7 @@ def sari_piran_narayan_99(
     t_obs                = t_obs.to(units.day)
     
     # the effective lifetime of the emitting cell must be accounted for
-    dt_obs               = time_bins[1:] - time_bins[:-1]
+    dt_obs               = tbin_edges[1:] - tbin_edges[:-1]
     dt_day               = dt.to(units.day)
     
     # loop through the given frequencies and put them in their respective locations in dictionary
@@ -508,9 +508,10 @@ def sari_piran_narayan_99(
         ff = calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
         ff = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
         
+        # zzz = input('')
         # place the fluxes in the appropriate time bins
-        for idx, t1 in enumerate(time_bins[:-1]):
-            t2 = time_bins[idx + 1]
+        for idx, t1 in enumerate(tbin_edges[:-1]):
+            t2 = tbin_edges[idx + 1]
             flux_array[freq][idx] += dt_day / dt_obs[idx] * ff[(t_obs > t1) & (t_obs < t2)].sum()
         
 def log_events(
@@ -706,8 +707,9 @@ def main():
     nbins         = args.ntbins
     nbin_edges    = nbins + 1
     tbin_edge     = get_tbin_edges(args, file_reader, files)
-    time_bins     = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
-    flux_per_tbin = {i: np.zeros(nbins) * units.Jy for i in args.nu}
+    tbin_edges    = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
+    time_bins     = 0.5 * (tbin_edges[1:] + tbin_edges[:-1])
+    flux_per_tbin = {i: np.zeros(nbins) * units.mJy for i in args.nu}
     events_list   = np.zeros(shape=(len(files), 2))
     storage       = {}
     
@@ -724,8 +726,9 @@ def main():
     
     for idx, file in enumerate(files):
         fields, setup, mesh = file_reader(file)
-        sari_piran_narayan_99(fields, args, time_bins=time_bins, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
+        sari_piran_narayan_99(fields, args, tbin_edges=tbin_edges, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
         print(f"Processed file {file}", flush=True)
+    
     
     for nidx, freq in enumerate(args.nu):
         power_of_ten = int(np.floor(np.log10(freq)))
@@ -734,10 +737,10 @@ def main():
             freq_label = r'10^{%d}'%(power_of_ten)
         else:
             freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
-    
+
         style = linestyles[nidx % len(args.nu)]
         color = colors[nidx % len(args.nu)]
-        ax.plot(time_bins[:-1], flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+        ax.plot(time_bins, flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
         
         if args.example_curve is not None:
             example_data = util.read_example_afterglow_data(args.example_curve)
