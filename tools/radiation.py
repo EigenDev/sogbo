@@ -16,410 +16,13 @@ try:
     import cmasher as cmr 
 except ImportError:
     print("cannot find cmasher module, using basic matplotlib colors insteads")
-    
-from typing import Callable
 
 # FONT SIZES
 SMALL_SIZE   = 8
 DEFAULT_SIZE = 10
 BIGGER_SIZE  = 12
 
-if '--hydro_scales' in sys.argv:
-    #================================
-    #   Hydro scales
-    #================================
-    R_0   = const.R_sun.cgs 
-    c     = const.c.cgs
-    m_sun = const.M_sun.cgs
-    rho_scale     = m_sun / (4./3. * np.pi * R_0 ** 3) 
-    e_scale       = m_sun * c **2
-    pre_scale     = e_scale / (4./3. * np.pi * R_0**3)
-    time_scale    = R_0 / c
-    length_scale  = R_0
-    
-    # remove the arg once finishes
-    sys.argv.remove('--hydro_scales')
-else:
-    #==============
-    # BMK Scales
-    #==============
-    e_scale      = 1e53 * units.erg 
-    rho_scale    = 1.0 * const.m_p.cgs / units.cm**3 
-    length_scale = ((e_scale / (rho_scale * const.c.cgs**2))**(1/3)).to(units.cm)
-    time_scale   = length_scale / const.c.cgs 
-    pre_scale    = e_scale / length_scale ** 3
 
-def generate_mesh(args: argparse.ArgumentParser, mesh: dict):
-    """
-    Generate a real or pseudo 3D mesh based on checkpoint data
-    
-    Parameters
-    --------------------------
-    args: argparser arguments from CLI 
-    mesh: the mesh data from the checkpoint
-    
-    Return
-    --------------------------
-    rr:      (np.ndarray) 3D array of radial points
-    thetta:  (np.ndarray) 3D array of polar points
-    phii:    (np.ndarray) 3D arrray of azimuthal points
-    ndim:    (int)        number of dimension from checkpoint mesh
-    """
-    
-    r = mesh['r']
-    ndim = 1
-    if 'theta' in mesh:
-        ndim += 1
-        theta = mesh['theta']
-    else:
-        dlogr         = np.log10(r.max()/r.min())/(r.size - 1)
-        theta_max     = np.pi / 2 if not args.full_sphere else np.pi
-        theta_samples = int(theta_max / dlogr + 1) if not args.theta_samples else args.theta_samples 
-        theta         = np.linspace(0.0, theta_max, theta_samples)
-        
-    if 'phi' in mesh:
-        ndim += 1
-        phi  = mesh['phi']
-    else:
-        phi = np.linspace(0.0, 2.0 * np.pi, args.phi_samples)
-
-    thetta, phii, rr = np.meshgrid(theta, phi, r)
-    
-    return rr, thetta, phii, ndim
-
-def get_tbin_edges(
-    args: argparse.ArgumentParser, 
-    file_reader: Callable,
-    files: str):
-    """
-    Get the bin edges of the lightcurves based on the checkpoints given
-    
-    Parameters:
-    -----------------------------------
-    files: list of files to draw data from
-    
-    Returns:
-    -----------------------------------
-    tmin, tmax: tuple of time bins in units of days
-    """
-    
-    setup_init,  mesh_init  = file_reader(files[0])[1:]
-    setup_final, mesh_final = file_reader(files[-1])[1:]
-    
-    t_beg = setup_init['time']  * time_scale
-    t_end = setup_final['time'] * time_scale
-    
-    rr0, thetta, phii = generate_mesh(args, mesh_init)[:-1]
-    rrf               = generate_mesh(args, mesh_final)[0]
-    rhat              = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radial unit vector                                                                                 # electron particle number index   
-    
-    # Place observer along chosen axis
-    theta_obs_rad = np.deg2rad(args.theta_obs)
-    theta_obs     = theta_obs_rad * np.ones_like(thetta)
-    obs_hat       = np.array([np.sin(theta_obs), np.zeros_like(thetta), np.cos(theta_obs)])
-    r_dot_nhat    = vector_dotproduct(rhat, obs_hat)
-    
-    if t_beg == 0:
-        t_beg = args.t0 * time_scale
-        
-    t_obs_min  = t_beg - rr0 * time_scale * r_dot_nhat
-    t_obs_max  = t_end - rrf * time_scale * r_dot_nhat
-
-    theta_idx  = util.find_nearest(thetta[0,:,0], theta_obs_rad)[0]
-    t_obs_beam = t_obs_min[0][theta_idx]
-    t_obs_beam = t_obs_beam[t_obs_beam >= 0]
-    
-    tmin       = (t_obs_beam.min()).to(units.day)
-    tmax       = (t_obs_max[t_obs_max > 0].max()).to(units.day)
-    
-    return tmin, tmax
-
-def running_mean(x, N):
-    cumsum = np.cumsum(np.insert(x, 0, 0)) 
-    return (cumsum[N:] - cumsum[:-N]) / float(N)
-
-def shock_finder(vfield: np.ndarray, r: np.ndarray) -> int:
-    """
-    Computes the divergence of the vector field vfield, corresponding to dFx/dx + dFy/dy + ...
-    :return: index where divergence becomes negative
-    """
-    def first_neg(arr: np.ndarray):
-        idx = 0
-        for number in arr:
-            idx += 1 
-            if number < 0:
-                return idx
-    
-    n = 5
-    sections = vfield.size // n
-    num_dims = np.ndim(vfield)
-    divs     = []
-    for nth in range(sections):
-        edge  = nth + n if nth + 5 < vfield.size - 1 else  vfield.size - 1
-        div_v = 1/r[nth:edge]**2 * np.ufunc.reduce(np.add, np.gradient(r[nth:edge]**2*vfield[nth:edge], r[nth:edge]))
-        divs += [div_v]
-    
-    divs   = np.asanyarray(divs)
-
-def calc_bfield_shock(einternal: float, eps_b: float) -> float:
-    """
-    Calc magnitude of magnetic field assuming shock jump conditions
-    
-    Params:
-    ------------------------------------------------
-    einternal:     internal energy density
-    eps_b:            magnetic energy fraction
-    
-    Return:
-    ------------------------------------------------
-    The magnetic field magnitude 
-    """
-    return (8.0 * np.pi * eps_b * einternal)**0.5
-    
-def calc_gyration_frequency(b_field: float) -> float:
-    """
-    return gyration frequency in units of MHz
-    Params
-    ---------------------
-    b_field: magnetic field value 
-    
-    Return
-    ---------------------
-    the gyration frequency 
-    """
-    frequency_for_unit_field = (3.0 / 4.0 / np.pi) * (const.e.gauss * 1.0 * units.gauss) / (const.m_e.cgs * const.c.cgs)
-    return frequency_for_unit_field.value  * b_field.value * units.Hz
-
-def calc_total_synch_power(lorentz_gamma: float, ub: float, beta: float) -> float:
-    """
-    Calc bolometric synhrotron power
-    
-    Params:
-    --------------------------------------
-    lorentz_gamma:   lorentz factor 
-    ub:              magnetic field energy density 
-    beta:            dimensionless flow veloccity 
-    
-    Return:
-    --------------------------------------
-    Total synchrotron power
-    """
-    return (4.0/3.0) * const.sigma_T.cgs * beta**2 * lorentz_gamma ** 2 * const.c.cgs * ub
-
-def calc_nphotons_per_bin(volume: float, n_e: float, nu_g:float, gamma_e: float, beta: float, u_b: float, dt: float, p: float = 2.5) -> float:
-    """
-    Calculate the number of photons per energy (gamma_e) bin
-    
-    Params:
-    ------------------------------------------
-    volume:              volume of the cell
-    n_e:                 number density of electrons
-    nu_g:                gyration frequency of electrons
-    gamma_e:             lorentz factor of electrons
-    u_b:                 magnetic field energy density 
-    dt:                  the checkpoint time interval 
-    p:                   electron spectral index 
-    
-    Return:
-    ------------------------------------------
-    number of photons per energy bin
-    """
-    a = (8.0 * np.pi * volume / (3.0 * const.h.cgs * nu_g))
-    b = const.sigma_T.cgs * const.c.cgs * beta**2 * u_b * n_e 
-    c = gamma_e**(-(p + 1.0))
-    return a * b * c * dt
-
-# def calc_nphotons_per_electron(volume: float, n_e: float, nu_g:float, nu_c: float, beta: float, u_b: float, dt: float, p: float = 2.5) -> float:
-#     """
-#     Calculate the number of photons in energy bin
-    
-#     Params:
-#     ------------------------------------------
-#     volume:              volume of the cell
-#     n_e:                 number density of electrons
-#     nu_g:                gyration frequency of electrons
-#     nu_c:                critical frequency of photons
-#     beta:                dimensionless velocity wrt to speed of light
-#     u_b:                 magnetic field energy density 
-#     dt:                  the checkpoint time interval 
-#     p:                   electron spectral index 
-    
-#     Return:
-#     ------------------------------------------
-#     number of photons per energy bin
-#     """
-#     a = (16.0 * np.pi * volume / (3.0 * const.h.cgs * nu_g * (p - 1)))
-#     b = const.sigma_T.cgs * const.c.cgs * beta**2 * u_b * n_e 
-#     c = (nu_c/nu_g)**(-(p - 1.0)/2.0)
-#     return a * b * c * dt
-
-def calc_nphotons_other(power: float, nu_c: float, dt:float):
-    """
-    Calculate the number of photons per electron in energy bin
-    
-    Params: 
-    -------------------------------------
-    power:                 the total synchrotron power per electron
-    nu_c:                  the critical frequency of electrons
-    dt:                    the time step size between checkpoints
-    
-    Return:
-    -------------------------------------
-    calculate the number of photons emitted per electron in some energy bin
-    """
-    return power * dt / (const.h.cgs * nu_c)
-
-def gen_random_from_powerlaw(a, b, g, size=1):
-    """Power-law generator for pdf(x) ~ x^{g-1} for a<=x<=b"""
-    rng = np.random.default_rng()
-    r = rng.random(size=size)[0]
-    ag, bg = a**g, b**g
-    return (ag + (bg - ag)*r)**(1.0/g)
-
-def vector_magnitude(a: np.ndarray) -> np.ndarray:
-    """return magnitude of vector(s)"""
-    if a.ndim <= 3:
-        return (a.dot(a))**0.5
-    else:
-        return (a[0]**2 + a[1]**2 + a[2]**2)**0.5
-        
-def vector_dotproduct(a: np.ndarray, b: np.ndarray) -> float:
-    """dot product between vectors or array of vectors"""
-    if a.ndim <= 3:
-        return a.dot(b)
-    else:
-        return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
-
-def calc_nelectrons_at_gamma_e(n_e: float, gamma_e: float, p: float = 2.5) -> float:
-    """
-    Calculate the number density of electrons per lorentz facor 
-    Params:
-    --------------------------------------
-    n_e:                       total number density of electrons
-    gamma_e:                   the electron lorentz factor
-    dgamma:                    the energy bin size 
-    p:                         electron spectral index 
-    
-    Return:
-    -------------------------------------
-    number density of electrons at a given energy
-    """
-    return n_e * gamma_e ** (-p)
-
-def calc_doppler_delta(lorentz_gamma: float, beta_vector: np.ndarray, n_hat: np.ndarray) -> np.ndarray:
-    """
-    Calculate the dpppler factor given lorentz factor, velocity vector, and propagation vector
-    
-    Params:
-    --------------------------------------
-    lorentz_gamma:           lorentz factor of flow 
-    beta_vector:             velocity vector of flow 
-    n_hat:                   direction of emission
-    
-    Return:
-    ---------------------------------------
-    the standard doppler factor delta 
-    """
-    return 1.0 / (lorentz_gamma * (1.0  - vector_dotproduct(beta_vector, n_hat)))
-
-def calc_nu(gamma_e: float, nu_g: float):
-    """Calculate the synchrotron frequency as function of lorentz_factor"""
-    return gamma_e ** 2 * nu_g 
-
-def calc_critical_lorentz(bfield: float, time: float)-> float:
-    """Calculate the critical Lorentz factor as function of time and magnetic field"""
-    return (6.0 * np.pi * const.m_e.cgs * const.c.cgs) / (const.sigma_T.cgs * bfield ** 2 * time)
-
-def calc_max_power_per_frequency(bfield: float) -> float:
-    """Calculate the maximum power per frequency""" 
-    return (const.m_e.cgs * const.c.cgs ** 2 * const.sigma_T.cgs) / (3.0 * const.e.gauss) * bfield
-
-def calc_emissivity(bfield: float, n: float, p: float) -> float:
-    """Calculate the peak emissivity per frequency per equation (A3) in
-    https://iopscience.iop.org/article/10.1088/0004-637X/749/1/44/pdf
-    """ 
-    eps_m = (9.6323/ 8.0 / np.pi) * (p - 1.0) / (3.0 * p - 1.0) * (3.0)**0.5 * const.e.gauss**3 / (const.m_e.cgs * const.c.cgs**2) * n * bfield
-    return eps_m
-
-def calc_minimum_lorentz(eps_e: float,e_thermal: float, n: float, p: float) -> float:
-    """
-    Calculate the minimum lorentz factor of electrons in the distribution
-    
-    Params:
-    ------------------------------
-    eps_e:              fraction of internal energy due to shocked electrons
-    p:                  spectral electron number index 
-    
-    Return:
-    ------------------------------
-    Minimum lorentz factor of electrons
-    """
-    return eps_e * (p - 2.0) / (p - 1.0) * e_thermal / (n * const.m_e.cgs * const.c.cgs**2)
-
-def calc_powerlaw_flux(
-    mesh:     dict,
-    flux_max: float, 
-    p:        float,
-    nu:       float, 
-    nu_c:     float, 
-    nu_m:     float, 
-    ndim:     int = 1) -> float:
-    """
-    ---------------------------------------
-    Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
-    ---------------------------------------
-    """
-    f_nu = flux_max.copy()
-    slow_cool    = nu_c > nu_m
-    fast_cool    = nu_c < nu_m
-    
-    fast_break1  = nu_c > nu 
-    fast_break2  = nu   > nu_m
-    fast_mask1   = fast_cool & fast_break1 
-    fast_mask2   = fast_cool & fast_break2
-    fast_mask3   = fast_cool & (fast_break1 == False) & (fast_break2 == False)
-    
-    slow_break1  = nu_m > nu 
-    slow_break2  = nu   > nu_c
-    slow_mask1   = slow_cool & slow_break1
-    slow_mask2   = slow_cool & slow_break2
-    slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
-    
-    if ndim == 1:
-        # Collapse the masks into their respective 1D symmetries
-        slow_mask1 = slow_mask1[0][0]
-        slow_mask2 = slow_mask2[0][0]
-        slow_mask3 = slow_mask3[0][0]
-        
-        fast_mask1 = fast_mask1[0][0]
-        fast_mask2 = fast_mask2[0][0]
-        fast_mask3 = fast_mask3[0][0]
-        
-        f_nu[:, :, slow_mask1] *= (nu[:, :, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-        f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-        f_nu[:, :, slow_mask3] *= (nu[:, :, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
-        
-        f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-        f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-        f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
-    else:
-        # Collapse the masks into their respective 2D symmetries
-        slow_mask1 = slow_mask1[0]
-        slow_mask2 = slow_mask2[0]
-        slow_mask3 = slow_mask3[0]
-        
-        fast_mask1 = fast_mask1[0]
-        fast_mask2 = fast_mask2[0]
-        fast_mask3 = fast_mask3[0]
-        f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-        f_nu[:, slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-        f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
-        
-        f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-        f_nu[:, fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-        f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
-        
-    return f_nu 
     
 def sari_piran_narayan_99(
     fields:         dict, 
@@ -437,7 +40,7 @@ def sari_piran_narayan_99(
     
     beta       = util.calc_beta(fields)
     w          = util.calc_lorentz_gamma(fields)
-    t_prime    = dset['time'] * time_scale
+    t_prime    = dset['time'] * util.scales.time_scale
     t_emitter  = t_prime / w 
     #================================================================
     #                    HYDRO CONDITIONS
@@ -446,22 +49,22 @@ def sari_piran_narayan_99(
     eps_b = 0.1  # Magnetic field fraction of internal energy 
     eps_e = 0.1  # shocked electrons fraction of internal energy
     
-    rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)            # internal energy density
-    bfield        = calc_bfield_shock(rho_einternal, eps_b)                       # magnetic field based on equipartition
-    n_e_proper    = fields['rho'] * rho_scale / const.m_p.cgs                     # electron number density
-    dt            = args.dt * time_scale                                          # step size between checkpoints
-    nu_g          = calc_gyration_frequency(bfield)                               # gyration frequency
+    rho_einternal = fields['p'] * util.scales.pre_scale / (dset['ad_gamma'] - 1.0)            # internal energy density
+    bfield        = util.calc_bfield_shock(rho_einternal, eps_b)                       # magnetic field based on equipartition
+    n_e_proper    = fields['rho'] * util.scales.rho_scale / const.m_p.cgs                     # electron number density
+    dt            = args.dt * util.scales.time_scale                                          # step size between checkpoints
+    nu_g          = util.calc_gyration_frequency(bfield)                               # gyration frequency
     d             = 1e28 * units.cm                                               # distance to source
-    gamma_min  = calc_minimum_lorentz(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
-    gamma_crit = calc_critical_lorentz(bfield, t_emitter)                         # Critical Lorentz factor of electrons
+    gamma_min     = util.calc_minimum_lorentz(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
+    gamma_crit    = util.calc_critical_lorentz(bfield, t_emitter)                         # Critical Lorentz factor of electrons
     
     
     # no moving mesh yet, so this is fine
     if case == 0:
-        rr, thetta, phii, ndim = generate_mesh(args, mesh)
+        rr, thetta, phii, ndim = util.generate_mesh(args, mesh)
 
         # Calc cell volumes
-        dvolume = util.calc_cell_volume3D(rr, thetta, phii) * length_scale ** 3
+        dvolume = util.calc_cell_volume3D(rr, thetta, phii) * util.scales.length_scale ** 3
         rhat    = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector                                                                                 # electron particle number index   
         
         # Place observer along chosen axis
@@ -474,7 +77,7 @@ def sari_piran_narayan_99(
         storage['obs_hat'] = obs_hat 
         storage['ndim']    = ndim
         storage['dvolume'] = dvolume
-        t_obs   = t_prime - rr * length_scale * vector_dotproduct(rhat, obs_hat) / const.c.cgs
+        t_obs   = t_prime - rr * util.scales.length_scale * util.vector_dotproduct(rhat, obs_hat) / const.c.cgs
     else:
         dt_chkpt = t_prime - storage['t_prime']
         t_obs    = storage['t_obs'] + dt_chkpt
@@ -485,12 +88,12 @@ def sari_piran_narayan_99(
     dvolume  = storage['dvolume']
     
     # Calculate the maximum flux based on the average bolometric power per electron
-    nu_c              = calc_nu(gamma_crit, nu_g)                                   # Critical frequency
-    nu_m              = calc_nu(gamma_min, nu_g)                                    # Minimum frequency
-    delta_doppler     = calc_doppler_delta(w, beta_vector=beta_vec, n_hat=obs_hat)  # Doppler factor
-    emissivity        = calc_emissivity(bfield, n_e_proper, p)                      # Emissibity per cell 
-    total_power       = storage['dvolume'] * emissivity                             # Total emitted power per unit frequency in each cell volume
-    flux_max          = total_power * delta_doppler ** (2.0)                        # Maximum flux 
+    nu_c              = util.calc_nu(gamma_crit, nu_g)                                   # Critical frequency
+    nu_m              = util.calc_nu(gamma_min, nu_g)                                    # Minimum frequency
+    delta_doppler     = util.calc_doppler_delta(w, beta_vector=beta_vec, n_hat=obs_hat)  # Doppler factor
+    emissivity        = util.calc_emissivity(bfield, n_e_proper, p)                      # Emissibity per cell 
+    total_power       = storage['dvolume'] * emissivity                                  # Total emitted power per unit frequency in each cell volume
+    flux_max          = total_power * delta_doppler ** (2.0)                             # Maximum flux 
     
     storage['t_obs']     = t_obs
     storage['t_prime']   = t_prime
@@ -505,10 +108,9 @@ def sari_piran_narayan_99(
         # The frequency we see is doppler boosted, so account for that
         nu_boost = freq * units.Hz / delta_doppler
         
-        ff = calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
+        ff = util.calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
         ff = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
         
-        # zzz = input('')
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(tbin_edges[:-1]):
             t2 = tbin_edges[idx + 1]
@@ -536,7 +138,7 @@ def log_events(
     
     beta    = util.calc_beta(fields)
     w       = util.calc_lorentz_gamma(fields)
-    t_prime = dset['time'] * time_scale
+    t_prime = dset['time'] * util.scales.time_scale
     gamma_min, gamma_max = args.gamma_lims 
     #================================================================
     #                    HYDRO CONDITIONS
@@ -564,10 +166,10 @@ def log_events(
     
     rhat          = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector
 
-    rho_einternal = fields['p'] * pre_scale / (dset['ad_gamma'] - 1.0)                                    # internal energy density
+    rho_einternal = fields['p'] * util.scales.pre_scale / (dset['ad_gamma'] - 1.0)                                    # internal energy density
     bfield        = calc_bfield_shock_other(rho_einternal, eps_b)                                         # magnetic field based on equipartition
     ub            = bfield**2 / (8.0 * np.pi)                                                             # magnetic energy density
-    n_e           = fields['rho'] * w * rho_scale / const.m_p.cgs                                         # electron number density
+    n_e           = fields['rho'] * w * util.scales.rho_scale / const.m_p.cgs                                         # electron number density
         
     # Each cell will have its own photons distribution. 
     # To account for this, we divide the gamma bins up 
@@ -578,9 +180,9 @@ def log_events(
     n_photons  = np.zeros(shape=(gamma_bins.size, mesh['r'].size))
     photon_erg = n_photons.copy()
     for idx, gamma_e in enumerate(gamma_bins):
-        gamma_sample   = gen_random_from_powerlaw(gamma_e, gamma_e + dgamma, -p)
+        gamma_sample   = util.gen_random_from_powerlaw(gamma_e, gamma_e + dgamma, -p)
         nu_c           = gamma_sample ** 2 * nu_g
-        nphot          = calc_nphotons_per_bin(dvolume, n_e, nu_g, gamma_sample, beta, ub, dt) * dgamma
+        nphot          = util.calc_nphotons_per_bin(dvolume, n_e, nu_g, gamma_sample, beta, ub, dt) * dgamma
         photon_erg[idx]= const.h.cgs * nu_c * nphot
         n_photons[idx] = nphot
     
@@ -603,12 +205,12 @@ def log_events(
                          mu_prime])
     
     # Cosine of the isotropic emission angle wrt to the propagation direction
-    mu_zeta         = vector_dotproduct(rhat, nhat_prime)
-    nvec_prime      = (r * length_scale) * nhat_prime 
-    nprime_para     = vector_magnitude(nvec_prime) * mu_zeta * rhat  # Direction of emission parallel to propagation direction
-    nprime_par_hat  = nprime_para / vector_magnitude(nprime_para)    # unit vecor for parallel direction 
+    mu_zeta         = util.vector_dotproduct(rhat, nhat_prime)
+    nvec_prime      = (r * util.scales.length_scale) * nhat_prime 
+    nprime_para     = util.vector_magnitude(nvec_prime) * mu_zeta * rhat  # Direction of emission parallel to propagation direction
+    nprime_par_hat  = nprime_para / util.vector_magnitude(nprime_para)    # unit vecor for parallel direction 
     nprime_perp     = nvec_prime - nprime_para                       # Direction of emission perpendicular to propagation direction
-    nprime_perp_hat = nprime_perp / vector_magnitude(nprime_perp)    # unit vector for parallel direction 
+    nprime_perp_hat = nprime_perp / util.vector_magnitude(nprime_perp)    # unit vector for parallel direction 
     beta_vec        = beta * rhat                                    # 3D-ify the flow velocity into cartesian 
     
     # Begin transorming the source trajectory into the rest frame
@@ -617,10 +219,10 @@ def log_events(
     rot_angle       = np.pi / 2.0 - np.arccos(cos_ang_rest)                            # rotation angle from initial emission direction to beaming direction
     
     # Resultant propagation direction in the lab frame
-    nvec_rest     = ( (vector_magnitude(nprime_para) * np.cos(rot_angle) + vector_magnitude(nprime_perp) * np.sin(rot_angle)) * nprime_par_hat 
-                    + ( - vector_magnitude(nprime_para) * np.sin(rot_angle) + vector_magnitude(nprime_perp) * np.cos(rot_angle)) * nprime_perp_hat 
+    nvec_rest     = ( (util.vector_magnitude(nprime_para) * np.cos(rot_angle) + util.vector_magnitude(nprime_perp) * np.sin(rot_angle)) * nprime_par_hat 
+                    + ( - util.vector_magnitude(nprime_para) * np.sin(rot_angle) + util.vector_magnitude(nprime_perp) * np.cos(rot_angle)) * nprime_perp_hat 
                       ) / (1.0 - cos_ang_rest)**0.5
-    nvec_mag      = vector_magnitude(nvec_rest)
+    nvec_mag      = util.vector_magnitude(nvec_rest)
     nhat_rest     = nvec_rest / nvec_mag
 
     photon_grid               = np.zeros(shape = (*rr.shape, len(gamma_bins)))
@@ -642,7 +244,7 @@ def log_events(
     beam_angle2 = np.arcsin(vector_dotproduct(nhat_rest, nhat_prime))[0][0][radial_cell]
     
     d = (1.0 * units.Mpc).to(units.cm)              # distance to observer
-    t = t_prime - rr * length_scale / const.c.cgs   # total time to the observer
+    t = t_prime - rr * util.scales.length_scale / const.c.cgs   # total time to the observer
     
     # Source energy to rest frame 4-momentum
     four_momentum_rest = four_momentum_prime.copy()
@@ -677,8 +279,11 @@ def main():
     parser.add_argument('--theta_samples', dest='theta_samples', type=int, help='number of theta_samples', default=None)
     parser.add_argument('--phi_samples', dest='phi_samples', type=int, help='number of phi', default=10)
     parser.add_argument('--example_curve', dest='example_curve', type=str, help='data file from example light curves', default=None)
+    parser.add_argument('--data_files', dest='data_files', type=str, help='data file from self computed light curves', default=None, nargs='+')
     parser.add_argument('--cmap', help='colormap scheme for light curves', dest='cmap', default=None, type=str)
-    parser.add_argument('--clims', help='color value limits', dest='clims', nargs='+', type=float, default=[None, None])
+    parser.add_argument('--clims', help='color value limits', dest='clims', nargs='+', type=float, default=[0.25, 0.75])
+    parser.add_argument('--compute', dest='compute', help='turn off if you have a data file you just want to plot immediately', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--file_save', dest='file_save', help='name of file to be saved as', type=str, default='some_lc.h5')
     args = parser.parse_args()
 
     if args.tex:
@@ -706,7 +311,7 @@ def main():
     fig, ax       = plt.subplots(figsize=(8,8))
     nbins         = args.ntbins
     nbin_edges    = nbins + 1
-    tbin_edge     = get_tbin_edges(args, file_reader, files)
+    tbin_edge     = util.get_tbin_edges(args, file_reader, files)
     tbin_edges    = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
     time_bins     = 0.5 * (tbin_edges[1:] + tbin_edges[:-1])
     flux_per_tbin = {i: np.zeros(nbins) * units.mJy for i in args.nu}
@@ -721,13 +326,14 @@ def main():
     else:
         colors     = ['c', 'y', 'm', 'k'] # list of basic colors
         
-    linestyles = ['-','--','-.',':']  # list of basic linestyles
-
+    # linestyles = ['-','--','-.',':']  # list of basic linestyles
+    linestyles = ['-']
     
-    for idx, file in enumerate(files):
-        fields, setup, mesh = file_reader(file)
-        sari_piran_narayan_99(fields, args, tbin_edges=tbin_edges, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
-        print(f"Processed file {file}", flush=True)
+    if args.compute:
+        for idx, file in enumerate(files):
+            fields, setup, mesh = file_reader(file)
+            sari_piran_narayan_99(fields, args, tbin_edges=tbin_edges, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
+            print(f"Processed file {file}", flush=True)
     
     
     for nidx, freq in enumerate(args.nu):
@@ -738,7 +344,7 @@ def main():
         else:
             freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
 
-        style = linestyles[nidx % len(args.nu)]
+        style = linestyles[nidx % len(linestyles)]
         color = colors[nidx % len(args.nu)]
         ax.plot(time_bins, flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
         
@@ -746,8 +352,32 @@ def main():
             example_data = util.read_example_afterglow_data(args.example_curve)
             nu_unit = freq * units.Hz
             ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.4)
-    
-
+        
+        if args.data_files is not None:
+            for dfile in args.data_files:
+                dat = util.read_my_datafile(dfile)
+                nu_unit = freq * units.Hz
+                ax.plot(dat['tday'], dat['fnu'][nu_unit], '-o', color=color, markersize=0.5)
+                
+    # Save the data
+    if args.compute:
+        dirname = os.path.dirname(args.file_save)
+        if os.path.exists(dirname) == False:
+            # Create a new directory because it does not exist 
+            os.makedirs(dirname)
+            print(80*'=')
+            print(f"creating new directory named {dirname}...")
+            
+        print(80*"=")
+        print(f"Saving file as {args.file_save}...")
+        print(80*'=')
+        with h5py.File(args.file_save, 'w') as hf: 
+            fnu_save = np.array([flux_per_tbin[key] for key  in flux_per_tbin.keys()])
+            dset = hf.create_dataset('sogbo_data', dtype='f')
+            hf.create_dataset('nu',   data=[nu for nu in args.nu])
+            hf.create_dataset('fnu',  data=fnu_save)
+            hf.create_dataset('tbins', data=time_bins)
+        
     tbound1 = time_bins[0]
     tbound2 = time_bins[-1]
     if args.dim == 1:
