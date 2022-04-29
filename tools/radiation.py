@@ -5,6 +5,8 @@ import numpy as np
 import astropy.constants as const 
 import astropy.units as units 
 import matplotlib.pyplot as plt 
+import matplotlib.lines as mlines
+import matplotlib.markers as mmarkers
 import utility as util 
 import argparse
 import os 
@@ -49,12 +51,12 @@ def sari_piran_narayan_99(
     eps_b = 0.1  # Magnetic field fraction of internal energy 
     eps_e = 0.1  # shocked electrons fraction of internal energy
     
-    rho_einternal = fields['p'] * util.scales.pre_scale / (dset['ad_gamma'] - 1.0)            # internal energy density
-    bfield        = util.calc_bfield_shock(rho_einternal, eps_b)                       # magnetic field based on equipartition
-    n_e_proper    = fields['rho'] * util.scales.rho_scale / const.m_p.cgs                     # electron number density
-    dt            = args.dt * util.scales.time_scale                                          # step size between checkpoints
-    nu_g          = util.calc_gyration_frequency(bfield)                               # gyration frequency
-    d             = 1e28 * units.cm                                               # distance to source
+    rho_einternal = fields['p'] * util.scales.pre_scale / (dset['ad_gamma'] - 1.0)        # internal energy density
+    bfield        = util.calc_bfield_shock(rho_einternal, eps_b)                          # magnetic field based on equipartition
+    n_e_proper    = fields['rho'] * util.scales.rho_scale / const.m_p.cgs                 # electron number density
+    dt            = args.dt * util.scales.time_scale                                      # step size between checkpoints
+    nu_g          = util.calc_gyration_frequency(bfield)                                  # gyration frequency
+    d             = 1e28 * units.cm                                                       # distance to source
     gamma_min     = util.calc_minimum_lorentz(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
     gamma_crit    = util.calc_critical_lorentz(bfield, t_emitter)                         # Critical Lorentz factor of electrons
     
@@ -283,7 +285,7 @@ def main():
     parser.add_argument('--cmap', help='colormap scheme for light curves', dest='cmap', default=None, type=str)
     parser.add_argument('--clims', help='color value limits', dest='clims', nargs='+', type=float, default=[0.25, 0.75])
     parser.add_argument('--file_save', dest='file_save', help='name of file to be saved as', type=str, default='some_lc.h5')
-    
+    parser.add_argument('--example_label', dest='example_label', help='label of the example curve\'s markers', type=str, default='example')
     try:
         parser.add_argument('--compute', dest='compute', 
                             help='turn off if you have a data file you just want to plot immediately', 
@@ -308,8 +310,10 @@ def main():
         file_path = os.path.join(args.files[0], '')
         files = sorted([file_path + f for f in os.listdir(file_path) if os.path.isfile(os.path.join(file_path, f))])
     else:
-        files = args.files 
+        files = sorted([file for file in args.files])
     
+    # sort by length of strings now
+    files.sort(key=len, reverse=False)
     
     if args.dim == 2:
         file_reader = util.read_2d_file 
@@ -329,7 +333,7 @@ def main():
     
     if args.cmap is not None:
         vmin, vmax = args.clims 
-        cinterval = np.linspace(0, 1, len(args.nu))
+        cinterval = np.linspace(vmin, vmax, len(args.nu))
         cmap      = plt.cm.get_cmap(args.cmap)
         colors    = util.get_colors(cinterval, cmap, vmin, vmax)
     else:
@@ -345,6 +349,7 @@ def main():
             print(f"Processed file {file}", flush=True)
     
     
+    sim_lines = [0] * len(args.nu)
     for nidx, freq in enumerate(args.nu):
         power_of_ten = int(np.floor(np.log10(freq)))
         front_part   = freq / 10**power_of_ten 
@@ -355,7 +360,7 @@ def main():
 
         style = linestyles[nidx % len(linestyles)]
         color = colors[nidx % len(args.nu)]
-        ax.plot(time_bins, flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+        sim_lines[nidx], = ax.plot(time_bins, flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
         
         if args.example_curve is not None:
             example_data = util.read_example_afterglow_data(args.example_curve)
@@ -367,7 +372,7 @@ def main():
                 dat = util.read_my_datafile(dfile)
                 nu_unit = freq * units.Hz
                 ax.plot(dat['tday'], dat['fnu'][nu_unit], '-o', color=color, markersize=0.5)
-                
+
     # Save the data
     if args.compute:
         dirname = os.path.dirname(args.file_save)
@@ -403,7 +408,12 @@ def main():
     ax.set_xlabel(r'$t_{\rm obs} [\rm day]$')
     ax.set_ylabel(r'$\rm Flux \ Density \ [\rm mJy]$')
     ax.legend()
-    
+    if args.example_curve is not None:
+        label = args.example_label
+        example = mlines.Line2D([0], [0], marker='o', color='w', label=label,
+                          markerfacecolor='black', markersize=5)
+        
+        ax.legend(handles=[*sim_lines, example])
     if args.save:
         file_str = f"{args.save}".replace(' ', '_')
         print(f'saving as {file_str}')
