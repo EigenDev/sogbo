@@ -282,8 +282,17 @@ def main():
     parser.add_argument('--data_files', dest='data_files', type=str, help='data file from self computed light curves', default=None, nargs='+')
     parser.add_argument('--cmap', help='colormap scheme for light curves', dest='cmap', default=None, type=str)
     parser.add_argument('--clims', help='color value limits', dest='clims', nargs='+', type=float, default=[0.25, 0.75])
-    parser.add_argument('--compute', dest='compute', help='turn off if you have a data file you just want to plot immediately', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--file_save', dest='file_save', help='name of file to be saved as', type=str, default='some_lc.h5')
+    
+    try:
+        parser.add_argument('--compute', dest='compute', 
+                            help='turn off if you have a data file you just want to plot immediately', 
+                            action=argparse.BooleanOptionalAction, default=True)
+    except:
+        parser.add_argument('--compute', dest='compute', 
+                            help='turn off if you have a data file you just want to plot immediately', 
+                            action='store_false', default=True)
+        
     args = parser.parse_args()
 
     if args.tex:
