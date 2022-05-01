@@ -80,8 +80,8 @@ def calc_cell_volume2D(r: np.ndarray, theta: np.ndarray) -> np.ndarray:
     rvertices = np.sqrt(r[:, 1:] * r[:, :-1])
     rvertices = np.insert(rvertices,  0, r[:, 0], axis=1)
     rvertices = np.insert(rvertices, rvertices.shape[1], r[:, -1], axis=1)
-    dr        = rvertices[:, 1:] - rvertices[:, :-1]
-    return (2.0 * np.pi *  (1./3.) * (rvertices[:, 1:]**3 - rvertices[:, :-1]**3) *  dcos)
+    
+    return 2.0 * np.pi *  (1./3.) * (rvertices[:, 1:]**3 - rvertices[:, :-1]**3) *  dcos
 
 def calc_cell_volume3D(r: np.ndarray, theta: np.ndarray, phi: np.ndarray) -> np.ndarray:
     pvertices = 0.5 * (phi[1:] + phi[:-1])
@@ -524,9 +524,14 @@ def generate_mesh(args: argparse.ArgumentParser, mesh: dict):
     else:
         phi = np.linspace(0.0, 2.0 * np.pi, args.phi_samples)
 
-    thetta, phii, rr = np.meshgrid(theta, phi, r)
+    if args.theta_obs == 0:
+        rr, thetta = np.meshgrid(r, theta)
+        return rr, thetta, ndim
+    else:
+        thetta, phii, rr = np.meshgrid(theta, phi, r)
+        return rr, thetta, phii, ndim
     
-    return rr, thetta, phii, ndim
+    
 
 def get_tbin_edges(
     args: argparse.ArgumentParser, 
@@ -543,6 +548,9 @@ def get_tbin_edges(
     -----------------------------------
     tmin, tmax: tuple of time bins in units of days
     """
+    on_axis = False
+    if args.theta_obs == 0:
+        on_axis = True
     
     setup_init,  mesh_init  = file_reader(files[0])[1:]
     setup_final, mesh_final = file_reader(files[-1])[1:]
@@ -550,9 +558,14 @@ def get_tbin_edges(
     t_beg = setup_init['time']  * scales.time_scale
     t_end = setup_final['time'] * scales.time_scale
     
-    rr0, thetta, phii = generate_mesh(args, mesh_init)[:-1]
-    rrf               = generate_mesh(args, mesh_final)[0]
-    rhat              = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radial unit vector                                                                                 # electron particle number index   
+    if on_axis:
+        rr0, thetta = generate_mesh(args, mesh_init)[:-1]
+        rrf         = generate_mesh(args, mesh_final)[0]
+        rhat        = np.array([np.sin(thetta), np.zeros_like(thetta), np.cos(thetta)])  # radial unit vector  
+    else:
+        rr0, thetta, phii = generate_mesh(args, mesh_init)[:-1]
+        rrf               = generate_mesh(args, mesh_final)[0]
+        rhat              = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radial unit vector                                                                                 # electron particle number index   
     
     # Place observer along chosen axis
     theta_obs_rad = np.deg2rad(args.theta_obs)
@@ -564,7 +577,10 @@ def get_tbin_edges(
     t_obs_min  = t_beg - rr0 * scales.time_scale * r_dot_nhat
     t_obs_max  = t_end - rrf * scales.time_scale * r_dot_nhat
 
-    theta_idx  = find_nearest(thetta[0,:,0], theta_obs_rad)[0]
+    if on_axis:
+        theta_idx = find_nearest(thetta[:,0], theta_obs_rad)[0]
+    else:
+        theta_idx  = find_nearest(thetta[0,:,0], theta_obs_rad)[0]
     t_obs_beam = t_obs_min[0][theta_idx]
     t_obs_beam = t_obs_beam[t_obs_beam >= 0]
     
@@ -724,10 +740,7 @@ def vector_magnitude(a: np.ndarray) -> np.ndarray:
         
 def vector_dotproduct(a: np.ndarray, b: np.ndarray) -> float:
     """dot product between vectors or array of vectors"""
-    if a.ndim <= 3:
-        return a.dot(b)
-    else:
-        return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
 
 def calc_nelectrons_at_gamma_e(n_e: float, gamma_e: float, p: float = 2.5) -> float:
     """
@@ -802,6 +815,7 @@ def calc_powerlaw_flux(
     nu:       float, 
     nu_c:     float, 
     nu_m:     float, 
+    on_axis:  bool = True,
     ndim:     int = 1) -> float:
     """
     ---------------------------------------
@@ -825,37 +839,64 @@ def calc_powerlaw_flux(
     slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
     
     if ndim == 1:
-        # Collapse the masks into their respective 1D symmetries
-        slow_mask1 = slow_mask1[0][0]
-        slow_mask2 = slow_mask2[0][0]
-        slow_mask3 = slow_mask3[0][0]
-        
-        fast_mask1 = fast_mask1[0][0]
-        fast_mask2 = fast_mask2[0][0]
-        fast_mask3 = fast_mask3[0][0]
-        
-        f_nu[:, :, slow_mask1] *= (nu[:, :, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-        f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-        f_nu[:, :, slow_mask3] *= (nu[:, :, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
-        
-        f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-        f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-        f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
+        if on_axis:
+            # Collapse the masks into their respective 1D symmetries
+            slow_mask1 = slow_mask1[0]
+            slow_mask2 = slow_mask2[0]
+            slow_mask3 = slow_mask3[0]
+            
+            fast_mask1 = fast_mask1[0]
+            fast_mask2 = fast_mask2[0]
+            fast_mask3 = fast_mask3[0]
+            
+            f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
+            f_nu[:, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            
+            f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
+            f_nu[:, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
+        else:
+            # Collapse the masks into their respective 1D symmetries
+            slow_mask1 = slow_mask1[0][0]
+            slow_mask2 = slow_mask2[0][0]
+            slow_mask3 = slow_mask3[0][0]
+            
+            fast_mask1 = fast_mask1[0][0]
+            fast_mask2 = fast_mask2[0][0]
+            fast_mask3 = fast_mask3[0][0]
+            
+            f_nu[:, :, slow_mask1] *= (nu[:, :, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
+            f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, :, slow_mask3] *= (nu[:, :, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            
+            f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
+            f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
     else:
-        # Collapse the masks into their respective 2D symmetries
-        slow_mask1 = slow_mask1[0]
-        slow_mask2 = slow_mask2[0]
-        slow_mask3 = slow_mask3[0]
-        
-        fast_mask1 = fast_mask1[0]
-        fast_mask2 = fast_mask2[0]
-        fast_mask3 = fast_mask3[0]
-        f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-        f_nu[:, slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-        f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
-        
-        f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-        f_nu[:, fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-        f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
+        if on_axis:
+            f_nu[slow_mask1] *= (nu[slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
+            f_nu[slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[slow_mask3] *= (nu[slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            
+            f_nu[fast_mask1] *= (nu[fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
+            f_nu[fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[fast_mask3] *= (nu[fast_mask3] / nu_c[fast_mask3])**(-0.5)
+        else:
+            # Collapse the masks into their respective 2D symmetries
+            slow_mask1 = slow_mask1[0]
+            slow_mask2 = slow_mask2[0]
+            slow_mask3 = slow_mask3[0]
+            
+            fast_mask1 = fast_mask1[0]
+            fast_mask2 = fast_mask2[0]
+            fast_mask3 = fast_mask3[0]
+            f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
+            f_nu[:, slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
+            f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            
+            f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
+            f_nu[:, fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
+            f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
         
     return f_nu

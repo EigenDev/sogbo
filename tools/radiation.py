@@ -63,22 +63,40 @@ def sari_piran_narayan_99(
     
     # no moving mesh yet, so this is fine
     if case == 0:
-        rr, thetta, phii, ndim = util.generate_mesh(args, mesh)
-
+        on_axis = False
+        # on axis observers don't need phi zones
+        if args.theta_obs == 0:
+            on_axis = True
+            rr, thetta, ndim = util.generate_mesh(args, mesh)
+        else:
+            rr, thetta, phii, ndim = util.generate_mesh(args, mesh)
+            
         # Calc cell volumes
-        dvolume = util.calc_cell_volume3D(rr, thetta, phii) * util.scales.length_scale ** 3
-        rhat    = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radiail diirectional unit vector                                                                                 # electron particle number index   
+        if on_axis:
+            dvolume = util.calc_cell_volume2D(rr, thetta) * util.scales.length_scale **3
+        else:
+            dvolume = util.calc_cell_volume3D(rr, thetta, phii) * util.scales.length_scale ** 3
+        
+        if on_axis:
+            rhat = np.array([np.sin(thetta), np.zeros_like(thetta), np.cos(thetta)])  # radial unit vector        
+        else:
+            rhat = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np,sin(phii), np.cos(thetta)])  # radial unit vector  
         
         # Place observer along chosen axis
         theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(thetta)
-        obs_hat    = np.array([np.sin(theta_obs)*np.cos(phii), np.sin(theta_obs) * np.sin(phii), np.cos(theta_obs)])
-        obs_idx    = util.find_nearest(thetta[0,:,0], np.deg2rad(args.theta_obs))[0]
+        obs_hat    = np.array([np.sin(theta_obs), np.zeros_like(thetta), np.cos(theta_obs)])
+        if on_axis:
+            obs_idx    = util.find_nearest(thetta[:,0], np.deg2rad(args.theta_obs))[0]
+        else:
+            obs_idx    = util.find_nearest(thetta[0,:,0], np.deg2rad(args.theta_obs))[0]
+            
         storage['obs_idx'] = obs_idx
         # Store everything in a dictionary that is constant
-        storage['rhat']    = rhat 
-        storage['obs_hat'] = obs_hat 
-        storage['ndim']    = ndim
-        storage['dvolume'] = dvolume
+        storage['rhat']     = rhat 
+        storage['obs_hat']  = obs_hat 
+        storage['ndim']     = ndim
+        storage['dvolume']  = dvolume
+        storage['on_axis']  = on_axis
         t_obs   = t_prime - rr * util.scales.length_scale * util.vector_dotproduct(rhat, obs_hat) / const.c.cgs
     else:
         dt_chkpt = t_prime - storage['t_prime']
@@ -88,6 +106,7 @@ def sari_piran_narayan_99(
     obs_hat  = storage['obs_hat']
     ndim     = storage['ndim']
     dvolume  = storage['dvolume']
+    
     
     # Calculate the maximum flux based on the average bolometric power per electron
     nu_c              = util.calc_nu(gamma_crit, nu_g)                                   # Critical frequency
@@ -102,15 +121,14 @@ def sari_piran_narayan_99(
     t_obs                = t_obs.to(units.day)
     
     # the effective lifetime of the emitting cell must be accounted for
-    dt_obs               = tbin_edges[1:] - tbin_edges[:-1]
-    dt_day               = dt.to(units.day)
+    dt_obs = tbin_edges[1:] - tbin_edges[:-1]
+    dt_day = dt.to(units.day)
     
     # loop through the given frequencies and put them in their respective locations in dictionary
     for freq in args.nu:
         # The frequency we see is doppler boosted, so account for that
-        nu_boost = freq * units.Hz / delta_doppler
-        
-        ff = util.calc_powerlaw_flux(mesh, flux_max, p, nu_boost, nu_c, nu_m, ndim = ndim)
+        nu_source = freq * units.Hz / delta_doppler
+        ff = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = ndim, on_axis = storage['on_axis'])
         ff = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
         
         # place the fluxes in the appropriate time bins
@@ -375,12 +393,14 @@ def main():
 
     # Save the data
     if args.compute:
+        isFile = os.path.isfile(args.file_save)
         dirname = os.path.dirname(args.file_save)
         if os.path.exists(dirname) == False:
-            # Create a new directory because it does not exist 
-            os.makedirs(dirname)
-            print(80*'=')
-            print(f"creating new directory named {dirname}...")
+            if not isFile:
+                # Create a new directory because it does not exist 
+                os.makedirs(dirname)
+                print(80*'=')
+                print(f"creating new directory named {dirname}...")
             
         print(80*"=")
         print(f"Saving file as {args.file_save}...")
