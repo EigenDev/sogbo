@@ -83,7 +83,7 @@ def main():
     ell    = (e0/rho0)**(1/3)  # inital length scale
     t      = args.t0           # initial simulation time
     
-    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell
+    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell * 2.0 ** (-1.0/3.0)
     gamma_shock0  = calc_shock_lorentz_gamma(ell, t, args.k)
     r0            = calc_shock_radius(gamma_shock0, t, args.bmk_m)
     # grid constraints
@@ -118,10 +118,10 @@ def main():
     t_last = 0.0
     for tidx, t in enumerate(times):
         # Solution only physical when gamma_shock**2/2 >= chi
-        chi_critical = 0.5 * gamma_shock[tidx]**2
+        chi_critical = 0.50 * gamma_shock[tidx]**2
         chi          = calc_chi(ell, r, t, args.bmk_m, args.k)
         
-        smask        = (chi >= 1.0) & (chi <= chi_critical) 
+        smask        = (chi >= 1.0)
         # Northern jet
         rho[:theta_j_idx,   smask]       = calc_rho(gamma_shock[smask], chi[smask], rho0, args.k)
         gamma_fluid[:theta_j_idx, smask] = calc_gamma_fluid(gamma_shock[smask], chi[smask])
@@ -133,8 +133,11 @@ def main():
             gamma_fluid[theta.size - theta_j_idx:, smask] = calc_gamma_fluid(gamma_shock[smask], chi[smask])
             pressure[theta.size - theta_j_idx:, smask]    = calc_pressure(gamma_shock[smask], chi[smask], rho0, args.k)
         
-        gamma_fluid[gamma_fluid < 1.0] = 1.0
-        if (t - t_last) >= interval:
+        gamma_fluid[gamma_fluid < 1]       = 1
+        rho[:, chi > chi_critical]         = 1e-10 
+        pressure[:, chi > chi_critical]    = 1e-10
+        gamma_fluid[:, chi > chi_critical] = 1
+        if (t - t_last) >= args.tinterval:
             n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
             file_name = f'{data_dir}{args.npolar}.chkpt.{i:03}.h5'
             with h5py.File(f'{file_name}', 'w') as f:
@@ -149,14 +152,15 @@ def main():
                 f.create_dataset('v2',    data=beta2)
                 f.create_dataset('radii', data=r)
                 sim_info.attrs['current_time'] = t 
-                sim_info.attrs['ad_gamma'] = 4.0 / 3.0 
-                sim_info.attrs['x1min'] = r0 
-                sim_info.attrs['x1max'] = args.rmax 
-                sim_info.attrs['x2min'] = theta_min
-                sim_info.attrs['x2max'] = theta_max
-                sim_info.attrs['nx']    = nr 
-                sim_info.attrs['ny']    = args.npolar
-                sim_info.attrs['linspace'] = False 
+                sim_info.attrs['dt']           = t - t_last
+                sim_info.attrs['ad_gamma']     = 4.0 / 3.0 
+                sim_info.attrs['x1min']        = r0 
+                sim_info.attrs['x1max']        = args.rmax 
+                sim_info.attrs['x2min']        = theta_min
+                sim_info.attrs['x2max']        = theta_max
+                sim_info.attrs['nx']           = nr 
+                sim_info.attrs['ny']           = args.npolar
+                sim_info.attrs['linspace']     = False 
             
             if not args.nd_plot:
                 if args.var == 'gamma_beta':
@@ -167,7 +171,7 @@ def main():
                 elif args.var == 'pressure':
                     ax.semilogx(r, pressure[args.tidx])
                     
-            t_last = t + args.tinterval 
+            t_last = t 
             i += 1
             
         ells  += [ell]

@@ -25,16 +25,14 @@ def calc_fluid_gamma_max(l:float, t: float, k: float) -> float:
     gamma_shock = calc_gamma_shock(l, t, k)
     return gamma_shock / 2.0**0.5
     
-def calc_chi(l:float, r: float, t: float, m: float, k: float) -> float:
+def calc_chi(gamma_shock:float, r: float, t: float, m: float) -> float:
     """Similarity variable as function of time"""
-    gamma_shock = calc_gamma_shock(l, t, k)
     return (1.0 + 2.0 * (m + 1)* gamma_shock**2)*(1.0 - r / t)
 
 def calc_gamma_fluid(gamma_shock: float, chi: float) -> float:
     return gamma_shock / (2.0 * chi)**0.5
 
-def calc_rho(gamma_shock: float, chi: float, rho0: float, k: float) -> float:
-    gamma_fluid = calc_gamma_fluid(gamma_shock, chi)
+def calc_rho(gamma_shock: float, gamma_fluid: float, chi: float, rho0: float, k: float) -> float:
     return 2.0 * rho0 * gamma_shock ** 2 * chi ** (-(7.0 - 2.0 * k) /(4.0 - k)) / gamma_fluid
 
 def calc_pressure(gamma_shock: float, chi: float, rho0: float, k: float) -> float:
@@ -89,22 +87,20 @@ def main():
     length_scale = ((e0 * e_scale / (rho0 * rho_scale * c**2))**(1/3)).to(units.cm)
     time_scale   = length_scale / const.c.cgs 
     
-    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell
+    # BMK breaks down when gamma_shock <= sqrt(2)
+    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell * 2**(-1.0 / 3.0)
     times         = np.geomspace(t, tphysical, args.nzones)
     gamma_shock   = calc_gamma_shock(ell, times, args.k)
     r             = calc_shock_radius(gamma_shock, times, args.bmk_m)
     r0            = r[0]
     gamma_max0    = calc_fluid_gamma_max(ell, t, args.k)
     
-    ell = (e0 / rho0 / r0**args.k)**(1.0 / (3.0 - args.k))
+    # ell = (e0 / rho0 / r0**args.k)**(1.0 / (3.0 - args.k))
     # Initial arrays
     gamma_fluid = np.ones_like(r)
     rho         = np.ones_like(r) * rho0 * (r/r[0])**(-args.k)
     pressure    = rho * 1e-10
-    
-    gamma_fluid[0] = gamma_shock[0] / 2.0**0.5
-    
-    interval = 0.0
+        
     fig, ax  = plt.subplots(1, 1, figsize=(4,4))
     
     ells  = []
@@ -115,15 +111,33 @@ def main():
     for tidx, t in enumerate(times):  
         # Solution only physical when gamma_shock**2/2 >= chi
         chi_critical = 0.5 * gamma_shock[tidx]**2 
-        chi          = calc_chi(ell, r, t, args.bmk_m, args.k)
+        chi          = calc_chi(gamma_shock[tidx], r, t, args.bmk_m)
         
-        smask               = (chi >= 1.0) & (chi <= chi_critical) 
-        rho[smask]          = calc_rho(gamma_shock[smask], chi[smask], rho0, args.k)
+        smask               = (chi >= 1.0) #& (chi <= chi_critical)
         gamma_fluid[smask]  = calc_gamma_fluid(gamma_shock[smask], chi[smask])
+        gamma_fluid[gamma_fluid < 1] = 1
+        rho[smask]          = calc_rho(gamma_shock[smask], gamma_fluid[smask], chi[smask], rho0, args.k)
         pressure[smask]     = calc_pressure(gamma_shock[smask], chi[smask], rho0, args.k)
         
-        gamma_fluid[gamma_fluid < 1.0] = 1.0
-        if (t - t_last) >= interval:
+        rho[chi > chi_critical]         = 1e-10 
+        pressure[chi > chi_critical]    = 1e-10
+        gamma_fluid[chi > chi_critical] = 1
+        # if rho[0] > rho0:
+        #     print(rho)
+        #     print(gamma_fluid)
+        #     print(chi)
+        #     print(chi_critical)
+        #     zzz = input('')
+        # umask = chi > chi_critical
+        # gamma_fluid[gamma_fluid < 1] = 1
+        # # rho[chi > chi_critical] = 1
+        # if rho[chi <= chi_critical].size < 0:
+        #     print(rho[chi <= chi_critical].size)
+        #     rho[chi > chi_critical] = rho[chi <= chi_critical][0]
+        # gamma_fluid[umask]           = 1
+        # print(gamma_fluid[chi >= 1])
+        # zzz = input('')
+        if (t - t_last) >= args.tinterval:
             n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
             file_name = f'{data_dir}{args.nzones}.chkpt.{i:03}.h5'
             with h5py.File(f'{file_name}', 'w') as f:
@@ -135,12 +149,12 @@ def main():
                 f.create_dataset('v', data=beta)
                 f.create_dataset('radii', data=r)
                 sim_info.attrs['current_time'] = t 
+                sim_info.attrs['dt']           = t - t_last
                 sim_info.attrs['ad_gamma']     = 4.0 / 3.0 
                 sim_info.attrs['x1min']        = r[0]
                 sim_info.attrs['x1max']        = r[-1] 
                 sim_info.attrs['Nx']           = args.nzones 
                 sim_info.attrs['linspace']     = False 
-                
             if args.var == 'gamma_beta':
                 gb  = (gamma_fluid**2 - 1.0)**0.5
                 ax.semilogx(r, gb)
@@ -150,7 +164,7 @@ def main():
             elif args.var == 'pressure':
                 ax.semilogx(r, pressure)
 
-            t_last = t + args.tinterval
+            t_last = t
             i += 1
         
         ells  += [ell]
