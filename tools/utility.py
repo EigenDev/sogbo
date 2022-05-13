@@ -80,7 +80,8 @@ def calc_cell_volume2D(r: np.ndarray, theta: np.ndarray) -> np.ndarray:
     rvertices = np.sqrt(r[:, 1:] * r[:, :-1])
     rvertices = np.insert(rvertices,  0, r[:, 0], axis=1)
     rvertices = np.insert(rvertices, rvertices.shape[1], r[:, -1], axis=1)
-    
+    dr        = rvertices[:, 1:] - rvertices[:, :-1]
+    # print(f"{dr[0,1219] * scales.length_scale:.2e}")
     return 2.0 * np.pi *  (1./3.) * (rvertices[:, 1:]**3 - rvertices[:, :-1]**3) *  dcos
 
 def calc_cell_volume3D(r: np.ndarray, theta: np.ndarray, phi: np.ndarray) -> np.ndarray:
@@ -348,6 +349,11 @@ def read_1d_file(filename: str) -> dict:
             radii = hf.get('radii')[:]
         except:
             pass 
+        try:
+            dt = ds.attrs['dt']
+        except:
+            pass
+        
         # rho = rho[2:-2]
         # v   = v  [2:-2]
         # p   = p  [2:-2]
@@ -369,7 +375,10 @@ def read_1d_file(filename: str) -> dict:
                 mesh['r'] = np.linspace(x1min, x1max, xactive)
             else:
                 mesh['r'] = np.logspace(np.log10(x1min), np.log10(x1max), xactive)
-                
+        
+        if 'dt' in locals():
+            setups['dt']      = dt 
+            
         setups['ad_gamma']    = 4./3.
         setups['time']        = t
         setups['linspace']    = is_linspace
@@ -816,7 +825,8 @@ def calc_powerlaw_flux(
     nu_c:     float, 
     nu_m:     float, 
     on_axis:  bool = True,
-    ndim:     int = 1) -> float:
+    ndim:     int = 1,
+    r: float = 1) -> float:
     """
     ---------------------------------------
     Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
@@ -826,14 +836,14 @@ def calc_powerlaw_flux(
     slow_cool    = nu_c > nu_m
     fast_cool    = nu_c < nu_m
     
-    fast_break1  = nu_c > nu 
-    fast_break2  = nu   > nu_m
+    fast_break1  = nu < nu_c
+    fast_break2  = (nu < nu_m) & (nu > nu_c)
     fast_mask1   = fast_cool & fast_break1 
     fast_mask2   = fast_cool & fast_break2
     fast_mask3   = fast_cool & (fast_break1 == False) & (fast_break2 == False)
     
-    slow_break1  = nu_m > nu 
-    slow_break2  = nu   > nu_c
+    slow_break1  = nu < nu_m 
+    slow_break2  = (nu < nu_c) & (nu > nu_m)
     slow_mask1   = slow_cool & slow_break1
     slow_mask2   = slow_cool & slow_break2
     slow_mask3   = slow_cool & (slow_break1 == False) & (slow_break2 == False)
@@ -850,12 +860,13 @@ def calc_powerlaw_flux(
             fast_mask3 = fast_mask3[0]
             
             f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-            f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            f_nu[:, slow_mask2] *= (nu[:, slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))
+            f_nu[:, slow_mask3] *= (nu_c[slow_mask3]  / nu_m[slow_mask3])**(-0.5 * (p - 1.0)) * (nu[:, slow_mask3] / nu_c[slow_mask3])**(-0.5 * p)
             
             f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-            f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
+            f_nu[:, fast_mask2] *= (nu[:, fast_mask2] / nu_c[fast_mask2])**(-0.5)
+            f_nu[:, fast_mask3] *= (nu_m[fast_mask3]  / nu_c[fast_mask3])**(-0.5) * (nu[:, fast_mask3] / nu_m[fast_mask3])**(-0.5 * p)
+            
         else:
             # Collapse the masks into their respective 1D symmetries
             slow_mask1 = slow_mask1[0][0]
@@ -867,21 +878,22 @@ def calc_powerlaw_flux(
             fast_mask3 = fast_mask3[0][0]
             
             f_nu[:, :, slow_mask1] *= (nu[:, :, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, :, slow_mask2] *= (nu_c[slow_mask2]     / nu_m[slow_mask2])**(-0.5 * (p - 1.0)) * (nu[:, :, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-            f_nu[:, :, slow_mask3] *= (nu[:, :, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            f_nu[:, :, slow_mask2] *= (nu[:, :, slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))
+            f_nu[:, :, slow_mask3] *= (nu_c[slow_mask3]     / nu_m[slow_mask3])**(-0.5 * (p - 1.0)) * (nu[:, :, slow_mask3] / nu_c[slow_mask3])**(-0.5 * p)
+            
             
             f_nu[:, :, fast_mask1] *= (nu[:, :, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, :, fast_mask2] *= (nu_m[fast_mask2]     / nu_c[fast_mask2])**(-0.5) * (nu[:, :, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-            f_nu[:, :, fast_mask3] *= (nu[:, :, fast_mask3] / nu_c[fast_mask3])**(-0.5)
+            f_nu[:, :, fast_mask2] *= (nu[:, :, fast_mask2] / nu_c[fast_mask2])**(-0.5)
+            f_nu[:, :, fast_mask3] *= (nu_m[fast_mask3]     / nu_c[fast_mask3])**(-0.5) * (nu[:, :, fast_mask3] / nu_m[fast_mask3])**(-0.5 * p)
     else:
         if on_axis:
             f_nu[slow_mask1] *= (nu[slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-            f_nu[slow_mask3] *= (nu[slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            f_nu[slow_mask2] *= (nu[slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))
+            f_nu[slow_mask3] *= (nu_c[slow_mask3]  / nu_m[slow_mask3])**(-0.5 * (p - 1.0))*(nu[slow_mask3] / nu_c[slow_mask3])**(-0.5 * p)
             
             f_nu[fast_mask1] *= (nu[fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-            f_nu[fast_mask3] *= (nu[fast_mask3] / nu_c[fast_mask3])**(-0.5)
+            f_nu[fast_mask2] *= (nu[fast_mask2] / nu_c[fast_mask2])**(-0.5)
+            f_nu[fast_mask3] *= (nu_m[fast_mask3]  / nu_c[fast_mask3])**(-0.5)*(nu[fast_mask3] / nu_m[fast_mask3])**(-0.5 * p)
         else:
             # Collapse the masks into their respective 2D symmetries
             slow_mask1 = slow_mask1[0]
@@ -891,12 +903,15 @@ def calc_powerlaw_flux(
             fast_mask1 = fast_mask1[0]
             fast_mask2 = fast_mask2[0]
             fast_mask3 = fast_mask3[0]
+            
             f_nu[:, slow_mask1] *= (nu[:, slow_mask1] / nu_m[slow_mask1])**(1.0 / 3.0)  
-            f_nu[:, slow_mask2] *= (nu_c[slow_mask2]  / nu_m[slow_mask2])**(-0.5 * (p - 1.0))*(nu[:, slow_mask2] / nu_c[slow_mask2])**(-0.5 * p)
-            f_nu[:, slow_mask3] *= (nu[:, slow_mask3] / nu_m[slow_mask3])**(-0.5 * (p - 1.0))
+            f_nu[:, slow_mask2] *= (nu[:, slow_mask2] / nu_m[slow_mask2])**(-0.5 * (p - 1.0))
+            f_nu[:, slow_mask3] *= (nu_c[slow_mask3]  / nu_m[slow_mask3])**(-0.5 * (p - 1.0))*(nu[:, slow_mask3] / nu_c[slow_mask3])**(-0.5 * p)
+            
             
             f_nu[:, fast_mask1] *= (nu[:, fast_mask1] / nu_c[fast_mask1])**(1.0 / 3.0)
-            f_nu[:, fast_mask2] *= (nu_m[fast_mask2]  / nu_c[fast_mask2])**(-0.5)*(nu[:, fast_mask2] / nu_m[fast_mask2])**(-0.5 * p)
-            f_nu[:, fast_mask3] *= (nu[:, fast_mask3] / nu_c[fast_mask3])**(-0.5)
+            f_nu[:, fast_mask2] *= (nu[:, fast_mask2] / nu_c[fast_mask2])**(-0.5)
+            f_nu[:, fast_mask3] *= (nu_m[fast_mask3]  / nu_c[fast_mask3])**(-0.5)*(nu[:, fast_mask3] / nu_m[fast_mask3])**(-0.5 * p)
+            
         
     return f_nu

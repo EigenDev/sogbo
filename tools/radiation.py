@@ -30,6 +30,7 @@ def sari_piran_narayan_99(
     fields:         dict, 
     args:           argparse.ArgumentParser, 
     tbin_edges:     np.ndarray,
+    fbin_edges:     np.ndarray,
     flux_array:     np.ndarray,
     mesh:           dict, 
     dset:           dict, 
@@ -43,7 +44,7 @@ def sari_piran_narayan_99(
     beta       = util.calc_beta(fields)
     w          = util.calc_lorentz_gamma(fields)
     t_prime    = dset['time'] * util.scales.time_scale
-    t_emitter  = t_prime / w 
+    t_emitter  = t_prime / w
     #================================================================
     #                    HYDRO CONDITIONS
     #================================================================
@@ -54,13 +55,17 @@ def sari_piran_narayan_99(
     rho_einternal = fields['p'] * util.scales.pre_scale / (dset['ad_gamma'] - 1.0)        # internal energy density
     bfield        = util.calc_bfield_shock(rho_einternal, eps_b)                          # magnetic field based on equipartition
     n_e_proper    = fields['rho'] * util.scales.rho_scale / const.m_p.cgs                 # electron number density
-    dt            = args.dt * util.scales.time_scale                                      # step size between checkpoints
     nu_g          = util.calc_gyration_frequency(bfield)                                  # gyration frequency
     d             = 1e28 * units.cm                                                       # distance to source
     gamma_min     = util.calc_minimum_lorentz(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
     gamma_crit    = util.calc_critical_lorentz(bfield, t_emitter)                         # Critical Lorentz factor of electrons
-    
-    
+
+    # step size between checkpoints
+    if 'dt' in dset:
+        dt  = dset['dt'] * util.scales.time_scale
+    else:
+        dt  = args.dt * util.scales.time_scale                                      
+
     # no moving mesh yet, so this is fine
     if case == 0:
         on_axis = False
@@ -97,6 +102,7 @@ def sari_piran_narayan_99(
         storage['ndim']     = ndim
         storage['dvolume']  = dvolume
         storage['on_axis']  = on_axis
+        storage['rr']       = rr
         t_obs   = t_prime - rr * util.scales.length_scale * util.vector_dotproduct(rhat, obs_hat) / const.c.cgs
     else:
         dt_chkpt = t_prime - storage['t_prime']
@@ -114,7 +120,7 @@ def sari_piran_narayan_99(
     delta_doppler     = util.calc_doppler_delta(w, beta_vector=beta_vec, n_hat=obs_hat)  # Doppler factor
     emissivity        = util.calc_emissivity(bfield, n_e_proper, p)                      # Emissibity per cell 
     total_power       = storage['dvolume'] * emissivity                                  # Total emitted power per unit frequency in each cell volume
-    flux_max          = total_power * delta_doppler ** (2.0)                             # Maximum flux 
+    flux_max          = total_power * delta_doppler ** 2.0                               # Maximum flux 
     
     storage['t_obs']     = t_obs
     storage['t_prime']   = t_prime
@@ -124,17 +130,37 @@ def sari_piran_narayan_99(
     dt_obs = tbin_edges[1:] - tbin_edges[:-1]
     dt_day = dt.to(units.day)
     
+    emis = emissivity
     # loop through the given frequencies and put them in their respective locations in dictionary
     for freq in args.nu:
         # The frequency we see is doppler boosted, so account for that
         nu_source = freq * units.Hz / delta_doppler
         ff = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = ndim, on_axis = storage['on_axis'])
+
+        # if True:
+        #     max_coord = w[0].argmax()
+        #     gamc      = gamma_crit[0,max_coord]
+        #     gamm      = gamma_min[0,max_coord]
+        #     rcoord    = storage['rr'][0, max_coord] * util.scales.length_scale
+        #     print("te: {:.2e}, w: {:.2f}, em: {:.2e}, b: {:.2f}, r: {:.2e}, gc: {:.2e}, gm: {:.2e}, j: {:.2e}".format(t_prime.value, w[0,max_coord], emis.value[0, max_coord], bfield.value[0,max_coord], rcoord.value, gamc.value, gamm.value, ff.value[0, max_coord] / storage['dvolume'][0, max_coord].value))
+        #     zzz = input('')
         ff = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
-        
+
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(tbin_edges[:-1]):
             t2 = tbin_edges[idx + 1]
             flux_array[freq][idx] += dt_day / dt_obs[idx] * ff[(t_obs > t1) & (t_obs < t2)].sum()
+    
+    # nu_obs       = util.calc_nu(w, nu_g=nu_g)
+    # tdays        = [1]
+    # for tday in tdays:
+    #     for idx, nu1 in enumerate(fbin_edges[:-1]):
+    #         nu2       = fbin_edges[idx + 1]        
+    #         nu_source = np.sqrt(nu1 * nu2) / delta_doppler
+    #         ff        = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = ndim, on_axis = storage['on_axis'])
+    #         ff        = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
+            
+    #         flux_array[tday][idx] += dt_day / dt_obs[idx] * ff[(nu_obs > nu1) & (nu_obs < nu2)].sum()
         
 def log_events(
     fields:        dict, 
@@ -304,6 +330,7 @@ def main():
     parser.add_argument('--clims', help='color value limits', dest='clims', nargs='+', type=float, default=[0.25, 0.75])
     parser.add_argument('--file_save', dest='file_save', help='name of file to be saved as', type=str, default='some_lc.h5')
     parser.add_argument('--example_label', dest='example_label', help='label of the example curve\'s markers', type=str, default='example')
+    parser.add_argument('--xlims', dest='xlims', help='x limits in plot', default=None, type=float, nargs='+')
     try:
         parser.add_argument('--compute', dest='compute', 
                             help='turn off if you have a data file you just want to plot immediately', 
@@ -344,10 +371,16 @@ def main():
     nbin_edges    = nbins + 1
     tbin_edge     = util.get_tbin_edges(args, file_reader, files)
     tbin_edges    = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
-    time_bins     = 0.5 * (tbin_edges[1:] + tbin_edges[:-1])
-    flux_per_tbin = {i: np.zeros(nbins) * units.mJy for i in args.nu}
+    time_bins     = np.sqrt(tbin_edges[1:] * tbin_edges[:-1])
+    flux_per_bin = {i: np.zeros(nbins) * units.mJy for i in args.nu}
     events_list   = np.zeros(shape=(len(files), 2))
     storage       = {}
+    
+    # Make freq bins for spectra\
+    tday             = np.array([1, 10, 100, 1000])
+    freq_bins_edges  = np.geomspace(8e8, 3e17, nbin_edges) * units.Hz
+    freq_bins        = np.sqrt(freq_bins_edges[1:] * freq_bins_edges[:-1])
+    flux_per_bin.update({j: np.zeros(nbins) * units.mJy for j in tday})
     
     if args.cmap is not None:
         vmin, vmax = args.clims 
@@ -363,7 +396,7 @@ def main():
     if args.compute:
         for idx, file in enumerate(files):
             fields, setup, mesh = file_reader(file)
-            sari_piran_narayan_99(fields, args, tbin_edges=tbin_edges, flux_array = flux_per_tbin, mesh=mesh, dset=setup, storage=storage, case=idx)
+            sari_piran_narayan_99(fields, args, tbin_edges=tbin_edges, fbin_edges=freq_bins_edges, flux_array = flux_per_bin, mesh=mesh, dset=setup, storage=storage, case=idx)
             print(f"Processed file {file}", flush=True)
     
     
@@ -378,12 +411,12 @@ def main():
 
         style = linestyles[nidx % len(linestyles)]
         color = colors[nidx % len(args.nu)]
-        sim_lines[nidx], = ax.plot(time_bins, flux_per_tbin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+        sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
         
         if args.example_curve is not None:
             example_data = util.read_example_afterglow_data(args.example_curve)
             nu_unit = freq * units.Hz
-            ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.4)
+            ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=1.0)
         
         if args.data_files is not None:
             for dfile in args.data_files:
@@ -393,9 +426,13 @@ def main():
 
     # Save the data
     if args.compute:
-        isFile = os.path.isfile(args.file_save)
-        dirname = os.path.dirname(args.file_save)
-        if os.path.exists(dirname) == False:
+        file_name = args.file_save
+        if os.path.splitext(args.file_save)[1] != '.h5':
+            file_name += '.h5'
+        
+        isFile = os.path.isfile(file_name)
+        dirname = os.path.dirname(file_name)
+        if os.path.exists(dirname) == False and dirname != '':
             if not isFile:
                 # Create a new directory because it does not exist 
                 os.makedirs(dirname)
@@ -403,17 +440,20 @@ def main():
                 print(f"creating new directory named {dirname}...")
             
         print(80*"=")
-        print(f"Saving file as {args.file_save}...")
+        print(f"Saving file as {file_name}...")
         print(80*'=')
-        with h5py.File(args.file_save, 'w') as hf: 
-            fnu_save = np.array([flux_per_tbin[key] for key  in flux_per_tbin.keys()])
+        with h5py.File(file_name, 'w') as hf: 
+            fnu_save = np.array([flux_per_bin[key] for key  in flux_per_bin.keys()])
             dset = hf.create_dataset('sogbo_data', dtype='f')
             hf.create_dataset('nu',   data=[nu for nu in args.nu])
             hf.create_dataset('fnu',  data=fnu_save)
             hf.create_dataset('tbins', data=time_bins)
-        
-    tbound1 = time_bins[0]
-    tbound2 = time_bins[-1]
+    
+    if args.xlims is not None:
+        tbound1, tbound2 = np.asanyarray(args.xlims) * units.day 
+    else:
+        tbound1 = time_bins[0]
+        tbound2 = time_bins[-1]
     if args.dim == 1:
         ax.set_title('Light curve for spherical BMK Test')
     else:
