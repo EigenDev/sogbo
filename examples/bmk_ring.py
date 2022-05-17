@@ -59,6 +59,7 @@ def main():
     parser.add_argument('--nd_plot',   help='set if want full 2D plot', default=False, action='store_true', dest='nd_plot')
     parser.add_argument('--full_sphere',   help='set if want to account for full sphere', default=False, action='store_true', dest='full_sphere')
     parser.add_argument('--save',   help='flag to save figure. takes name of figure as arg', dest='save', default=None, type=str)
+    parser.add_argument('--plot', dest='plot', help='set if want to see plot', default=False)
     args = parser.parse_args()
     
     data_dir   = args.data_dir
@@ -109,8 +110,9 @@ def main():
     gamma_fluid[theta_left_wing_idx:theta_right_wing_idx + 1, 0] = gamma_shock0 / (2.0**0.5)
     
     interval = 0.0
-    if not args.nd_plot:
-        fig, ax  = plt.subplots(1, 1, figsize=(4,4))
+    if args.plot:
+        if not args.nd_plot:
+            fig, ax  = plt.subplots(1, 1, figsize=(4,4))
     
     i = 0
     ells  = []
@@ -165,69 +167,71 @@ def main():
                 sim_info.attrs['ny']           = npolar
                 sim_info.attrs['linspace']     = False 
             
-            if not args.nd_plot:
-                if args.var == 'gamma_beta':
-                    gb  = (gamma_fluid**2 - 1.0)**0.5
-                    ax.semilogx(r/ell, gb[args.tidx])
-                elif args.var == 'rho':
-                    ax.semilogx(r/ell, rho[args.tidx])
-                elif args.var == 'pressure':
-                    ax.semilogx(r/ell, pressure[args.tidx])
+            if args.plot:
+                if not args.nd_plot:
+                    if args.var == 'gamma_beta':
+                        gb  = (gamma_fluid**2 - 1.0)**0.5
+                        ax.semilogx(r/ell, gb[args.tidx])
+                    elif args.var == 'rho':
+                        ax.semilogx(r/ell, rho[args.tidx])
+                    elif args.var == 'pressure':
+                        ax.semilogx(r/ell, pressure[args.tidx])
                     
             t_last = t 
             i += 1
 
-    if not args.nd_plot:
-        if args.var == 'gamma_beta':
-            # Compare the t^-3/2 scaling with what was calculated
-            ells  = np.asanyarray(ells)
-            gamma_shock_scaling = gamma_shock / 2.0**0.5
-            gamma_shock_scaling[gamma_shock_scaling < 1.0] = 1.0
-            gb_scaling  = (gamma_shock_scaling**2 - 1.0)**0.5
-            ax.semilogx(times, gb_scaling, linestyle='--', label=r'$\Gamma \propto t^{-3/2}$')
-            ax.legend()
-        
-        if args.var == 'rho':
-            ylabel = r'$\rho$'
-        elif args.var == 'pressure':
-            ylabel = 'p'
+    if args.plot:
+        if not args.nd_plot:
+            if args.var == 'gamma_beta':
+                # Compare the t^-3/2 scaling with what was calculated
+                ells  = np.asanyarray(ells)
+                gamma_shock_scaling = gamma_shock / 2.0**0.5
+                gamma_shock_scaling[gamma_shock_scaling < 1.0] = 1.0
+                gb_scaling  = (gamma_shock_scaling**2 - 1.0)**0.5
+                ax.semilogx(times, gb_scaling, linestyle='--', label=r'$\Gamma \propto t^{-3/2}$')
+                ax.legend()
+            
+            if args.var == 'rho':
+                ylabel = r'$\rho$'
+            elif args.var == 'pressure':
+                ylabel = 'p'
+            else:
+                ylabel = r'$\gamma \beta_{\rm fluid}$'
+            
+            ax.set_title(rf'2D BMK Problem at t = {t:.1f}, $\theta$ ={theta[args.tidx]:.1f} N = {npolar} $\times$ {nr}, k={args.k:.1f}')
+            ax.set_ylabel(ylabel)
+            ax.set_xlabel(r'$r/\ell$')
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+            ax.set_xlim(r0*0.99, args.rmax)
+            ax.set_ylim(bottom=0.0)
         else:
-            ylabel = r'$\gamma \beta_{\rm fluid}$'
-        
-        ax.set_title(rf'2D BMK Problem at t = {t:.1f}, $\theta$ ={theta[args.tidx]:.1f} N = {npolar} $\times$ {nr}, k={args.k:.1f}')
-        ax.set_ylabel(ylabel)
-        ax.set_xlabel(r'$r/\ell$')
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
-        ax.set_xlim(r0*0.99, args.rmax)
-        ax.set_ylim(bottom=0.0)
-    else:
-        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-        norm = mcolors.LogNorm(vmin=None, vmax=None)
-        if args.var == 'rho':
-            c = ax.pcolormesh(thetta, rr, rho, norm=norm, shading='auto')
-            ax.pcolormesh(-thetta, rr, rho, norm=norm, shading='auto')
-            ylabel = r'$\rho$'
-        elif args.var == 'pressure':
-            c = ax.pcolormesh(thetta, rr, pressure, norm=norm, shading='auto')
-            ax.pcolormesh(-thetta, rr, pressure, norm=norm, shading='auto')
-            ylabel = 'p'
+            fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+            norm = mcolors.LogNorm(vmin=None, vmax=None)
+            if args.var == 'rho':
+                c = ax.pcolormesh(thetta, rr, rho, norm=norm, shading='auto')
+                ax.pcolormesh(-thetta, rr, rho, norm=norm, shading='auto')
+                ylabel = r'$\rho$'
+            elif args.var == 'pressure':
+                c = ax.pcolormesh(thetta, rr, pressure, norm=norm, shading='auto')
+                ax.pcolormesh(-thetta, rr, pressure, norm=norm, shading='auto')
+                ylabel = 'p'
+            else:
+                norm = mcolors.PowerNorm(gamma=0.5)
+                c = ax.pcolormesh(thetta, rr, gamma_fluid, norm=norm, shading='auto')
+                ax.pcolormesh(-thetta, rr, gamma_fluid, norm=norm, shading='auto')
+                ylabel = r'$\gamma \beta_{\rm fluid}$'
+            
+            ax.set_theta_zero_location("N")
+            ax.set_theta_direction(-1)
+            # ax.set_theta_direction(-1)
+            cbax = fig.colorbar(c, orientation='vertical')
+            cbax.set_label(ylabel)
+            
+        if not args.save:
+            plt.show()
         else:
-            norm = mcolors.PowerNorm(gamma=0.5)
-            c = ax.pcolormesh(thetta, rr, gamma_fluid, norm=norm, shading='auto')
-            ax.pcolormesh(-thetta, rr, gamma_fluid, norm=norm, shading='auto')
-            ylabel = r'$\gamma \beta_{\rm fluid}$'
-        
-        ax.set_theta_zero_location("N")
-        ax.set_theta_direction(-1)
-        # ax.set_theta_direction(-1)
-        cbax = fig.colorbar(c, orientation='vertical')
-        cbax.set_label(ylabel)
-        
-    if not args.save:
-        plt.show()
-    else:
-        fig.savefig("{}.pdf".format(args.save).replace(' ', '_'), dpi=600, bbox_inches='tight')
-        
+            fig.savefig("{}.pdf".format(args.save).replace(' ', '_'), dpi=600, bbox_inches='tight')
+            
 if __name__ == "__main__":
     main()

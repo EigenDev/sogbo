@@ -55,10 +55,13 @@ def main():
     parser.add_argument('--var',    help='select the variable you want to plot', dest='var', default = 'gamma_beta', choices=['gamma_beta', 'rho', 'pressure'])
     parser.add_argument('--m',      help='BMK self similarity parameter', default=3, type=float, dest='bmk_m')
     parser.add_argument('--k',      help='Density gradient slope', default=0, type=float, dest='k')
+    parser.add_argument('--rinit',  help='initial blast_wave radius', default=0.01, type=float, dest='rinit')
     parser.add_argument('--data_dir', help='Data directory', default='data/bmk_oned', type=str, dest='data_dir')
     parser.add_argument('--tinterval',      help='time intervals to plot', default=0.1, type=float, dest='tinterval')
     parser.add_argument('--bottom', help='bottom ylim for plot', dest='bottom', default=0.0, type=float)
     parser.add_argument('--save',   help='flag to save figure. takes name of figure as arg', dest='save', default=None, type=str)
+    parser.add_argument('--plot', dest='plot', help='set if want to see plot', default=False)
+
     args = parser.parse_args()
     
     data_dir   = args.data_dir
@@ -81,14 +84,14 @@ def main():
     # Initial Conditions 
     e0     = args.e0           # initial energy
     rho0   = args.rho0         # initial density at shock radius
-    ell    = (e0/rho0)**(1.0 / (3.0 - args.k))  # inital length scale at shock radius
+    ell    = (e0/rho0 * args.rinit**args.k)**(1/(3 - args.k))  # inital length scale
     t      = args.t0           # initial simulation time
     rmax   = args.rmax 
     length_scale = ((e0 * e_scale / (rho0 * rho_scale * c**2))**(1/3)).to(units.cm)
     time_scale   = length_scale / const.c.cgs 
     
     # BMK breaks down when gamma_shock <= sqrt(2)
-    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell * 2**(-1.0 / 3.0)
+    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell * 2.0 ** (-1.0/3.0)
     times         = np.geomspace(t, tphysical, args.nzones)
     gamma_shock   = calc_gamma_shock(ell, times, args.k)
     r             = calc_shock_radius(gamma_shock, times, args.bmk_m)
@@ -101,42 +104,35 @@ def main():
     rho         = np.ones_like(r) * rho0 * (r/r[0])**(-args.k)
     pressure    = rho * 1e-10
         
-    fig, ax  = plt.subplots(1, 1, figsize=(4,4))
+    if args.plot:
+        fig, ax  = plt.subplots(1, 1, figsize=(4,4))
     
     ells  = []
     upstream = 1
     i = 0
     t_last = 0.0
-    
+    chng = 0
+    a    = 0
+    for t in times:
+        if (t - a) >= args.tinterval:
+            a = t
+            chng += 1
+    print(f"Total chkpt files: {chng}")
     for tidx, t in enumerate(times):  
         # Solution only physical when gamma_shock**2/2 >= chi
         chi_critical = 0.5 * gamma_shock[tidx]**2 
         chi          = calc_chi(gamma_shock[tidx], r, t, args.bmk_m)
         
-        smask               = (chi >= 1.0) #& (chi <= chi_critical)
+        smask               = (chi >= 1.0)
         gamma_fluid[smask]  = calc_gamma_fluid(gamma_shock[smask], chi[smask])
-        gamma_fluid[gamma_fluid < 1] = 1
         rho[smask]          = calc_rho(gamma_shock[smask], gamma_fluid[smask], chi[smask], rho0, args.k)
         pressure[smask]     = calc_pressure(gamma_shock[smask], chi[smask], rho0, args.k)
         
+        gamma_fluid[gamma_fluid < 1]    = 1
         rho[chi > chi_critical]         = 1e-10 
         pressure[chi > chi_critical]    = 1e-10
         gamma_fluid[chi > chi_critical] = 1
-        # if rho[0] > rho0:
-        #     print(rho)
-        #     print(gamma_fluid)
-        #     print(chi)
-        #     print(chi_critical)
-        #     zzz = input('')
-        # umask = chi > chi_critical
-        # gamma_fluid[gamma_fluid < 1] = 1
-        # # rho[chi > chi_critical] = 1
-        # if rho[chi <= chi_critical].size < 0:
-        #     print(rho[chi <= chi_critical].size)
-        #     rho[chi > chi_critical] = rho[chi <= chi_critical][0]
-        # gamma_fluid[umask]           = 1
-        # print(gamma_fluid[chi >= 1])
-        # zzz = input('')
+
         if (t - t_last) >= args.tinterval:
             n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
             file_name = f'{data_dir}{args.nzones}.chkpt.{i:03}.h5'
@@ -155,53 +151,49 @@ def main():
                 sim_info.attrs['x1max']        = r[-1] 
                 sim_info.attrs['Nx']           = args.nzones 
                 sim_info.attrs['linspace']     = False 
-            if args.var == 'gamma_beta':
-                gb  = (gamma_fluid**2 - 1.0)**0.5
-                ax.semilogx(r, gb)
-                # ax.axvline(t, linestyle='--')
-            elif args.var == 'rho':
-                ax.semilogx(r, rho)
-            elif args.var == 'pressure':
-                ax.semilogx(r, pressure)
+            if args.plot:
+                if args.var == 'gamma_beta':
+                    gb  = (gamma_fluid**2 - 1.0)**0.5
+                    ax.semilogx(r, gb)
+                    # ax.axvline(t, linestyle='--')
+                elif args.var == 'rho':
+                    ax.semilogx(r, rho)
+                elif args.var == 'pressure':
+                    ax.semilogx(r, pressure)
 
             t_last = t
             i += 1
+    
+    if args.plot:
+        if args.var == 'gamma_beta':
+            # Compare the t^-3/2 scaling with what was calculated
+            ells  = np.asanyarray(ells)
+            gamma_fluid_scaling = gamma_shock / 2.0 ** 0.5
+            gamma_fluid_scaling[gamma_fluid_scaling < 1.0] = 1.0
+            gb_scaling  = (gamma_fluid_scaling**2 - 1.0)**0.5
+            ax.semilogx(times, gb_scaling, linestyle='--', label=r'$\Gamma \propto t^{-3/2}$')
+            ax.legend()
         
-        ells  += [ell]
+        if args.var == 'rho':
+            ylabel = r'$\rho$'
+        elif args.var == 'pressure':
+            ylabel = 'p'
+        else:
+            ylabel = r'$\gamma \beta_{\rm fluid}$'
         
-        # upstream   = np.where(chi < 1.0)[0][0]
-        # ell        = (e0/rho[upstream])**(1/3)
+        ax.set_title(f'1D BMK Problem at t = {t:.1f}, N={args.nzones}, k={args.k:.1f}')
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel(r'$r$')
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
         
-
-    if args.var == 'gamma_beta':
-        # Compare the t^-3/2 scaling with what was calculated
-        ells  = np.asanyarray(ells)
-        gamma_fluid_scaling = gamma_shock / 2.0 ** 0.5
-        gamma_fluid_scaling[gamma_fluid_scaling < 1.0] = 1.0
-        gb_scaling  = (gamma_fluid_scaling**2 - 1.0)**0.5
-        ax.semilogx(times, gb_scaling, linestyle='--', label=r'$\Gamma \propto t^{-3/2}$')
-        ax.legend()
-    
-    if args.var == 'rho':
-        ylabel = r'$\rho$'
-    elif args.var == 'pressure':
-        ylabel = 'p'
-    else:
-        ylabel = r'$\gamma \beta_{\rm fluid}$'
-    
-    ax.set_title(f'1D BMK Problem at t = {t:.1f}, N={args.nzones}, k={args.k:.1f}')
-    ax.set_ylabel(ylabel)
-    ax.set_xlabel(r'$r$')
-    ax.spines['right'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    
-    ax.set_xlim(r[0]*0.99, r[-1])
-    ax.set_ylim(bottom=args.bottom)
-    
-    if not args.save:
-        plt.show()
-    else:
-        fig.savefig("{}.pdf".format(args.save).replace(' ', '_'), dpi=600, bbox_inches='tight')
+        ax.set_xlim(r[0]*0.99, r[-1])
+        ax.set_ylim(bottom=args.bottom)
+        
+        if not args.save:
+            plt.show()
+        else:
+            fig.savefig("{}.pdf".format(args.save).replace(' ', '_'), dpi=600, bbox_inches='tight')
         
 if __name__ == "__main__":
     main()
