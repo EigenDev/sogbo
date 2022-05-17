@@ -85,7 +85,7 @@ def sari_piran_narayan_99(
         if on_axis:
             rhat = np.array([np.sin(thetta), np.zeros_like(thetta), np.cos(thetta)])  # radial unit vector        
         else:
-            rhat = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np,sin(phii), np.cos(thetta)])  # radial unit vector  
+            rhat = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radial unit vector  
         
         # Place observer along chosen axis
         theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(thetta)
@@ -331,6 +331,8 @@ def main():
     parser.add_argument('--file_save', dest='file_save', help='name of file to be saved as', type=str, default='some_lc.h5')
     parser.add_argument('--example_label', dest='example_label', help='label of the example curve\'s markers', type=str, default='example')
     parser.add_argument('--xlims', dest='xlims', help='x limits in plot', default=None, type=float, nargs='+')
+    parser.add_argument('--ylims', dest='ylims', help='y limits in plot', default=None, type=float, nargs='+') 
+    parser.add_argument('--fig_dims', dest='fig_dims', help='figure dimensions', default=(5,4), type=float, nargs='+')
     try:
         parser.add_argument('--compute', dest='compute', 
                             help='turn off if you have a data file you just want to plot immediately', 
@@ -364,9 +366,10 @@ def main():
         file_reader = util.read_2d_file 
     else:
         file_reader = util.read_1d_file
-        
+    
+    fig_dims      = args.fig_dims 
     freqs         = np.array(args.nu) * units.Hz
-    fig, ax       = plt.subplots(figsize=(8,8))
+    fig, ax       = plt.subplots(figsize=args.fig_dims)
     nbins         = args.ntbins
     nbin_edges    = nbins + 1
     tbin_edge     = util.get_tbin_edges(args, file_reader, files)
@@ -455,12 +458,13 @@ def main():
         tbound1 = time_bins[0]
         tbound2 = time_bins[-1]
     if args.dim == 1:
-        ax.set_title('Light curve for spherical BMK Test')
+        ax.set_title(r'$ \rm Light \  curve \ for \ spherical \ BMK \ Test$')
     else:
-        ax.set_title('Light curve for conical BMK Test')
-        
+        ax.set_title(r'$ \rm Light \ curve \ for \ conical \ BMK \ Test$')
+    
+    ylims = args.ylims if args.ylims else (1e-11, 1e4)
     ax.set_xlim(tbound1.value, tbound2.value)
-    ax.set_ylim(1e-14, 1e4)
+    ax.set_ylim(*ylims)
     ax.set_yscale('log')
     ax.set_xscale('log')
     ax.spines['top'].set_visible(False)
@@ -474,6 +478,7 @@ def main():
                           markerfacecolor='black', markersize=5)
         
         ax.legend(handles=[*sim_lines, example])
+        ax.axvline(3.5, linestyle='--', color='red')
     if args.save:
         file_str = f"{args.save}".replace(' ', '_')
         print(f'saving as {file_str}')
