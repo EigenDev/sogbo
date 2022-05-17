@@ -142,8 +142,7 @@ def main():
         if (t - t_last) >= args.tinterval:
             n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
             file_name = f'{data_dir}{args.npolar}.chkpt.{i:03}.h5'
-            with h5py.File(f'{file_name}', 'w') as f:    print(gamma_shock0)
-
+            with h5py.File(f'{file_name}', 'w') as f:
                 print(f'[Writing to {file_name}]')
                 beta = (1.0 - (gamma_fluid)**(-2.0))**0.5
                 beta1 = beta 
