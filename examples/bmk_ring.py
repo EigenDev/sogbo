@@ -46,7 +46,7 @@ def main():
     parser.add_argument('--rho0',   help='initial density of medium', dest='rho0',  type=float, default=1.0)
     parser.add_argument('--t0',     help='iniiial sim time',          dest='t0',    type=float, default=0.01)
     parser.add_argument('--tend',   help='dimensionless time to end simulation',    type=float, dest='tend', default=0.8)
-    parser.add_argument('--npolar', help='number of polar zones',    dest='npolar', type=int, default=128)
+    parser.add_argument('--nr', help='number of radial zones',    dest='nr', type=int, default=1024)
     parser.add_argument('--rmax',   help='max radius', dest='rmax', type=float, default=1.0)
     parser.add_argument('--var',    help='select the variable you want to plot', dest='var', default = 'gamma_beta', choices=['gamma_beta', 'rho', 'pressure'])
     parser.add_argument('--m',      help='BMK self similarity parameter', default=3, type=float, dest='bmk_m')
@@ -81,7 +81,7 @@ def main():
     # Initial Conditions 
     e0     = args.e0           # initial energy
     rho0   = args.rho0         # initial density
-    ell    = (e0/rho0 * args.rinit**args.k)**(1/(3 - args.k))  # inital length scale
+    ell    = (e0/(rho0 * args.rinit**args.k))**(1/(3 - args.k))  # inital length scale
     t      = args.t0           # initial simulation time
     
     tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell * 2.0 ** (-1.0/3.0)
@@ -90,9 +90,10 @@ def main():
     # grid constraints
     theta_max     = np.pi
     theta_min     = 0.0
-    theta         = np.linspace(0, theta_max, args.npolar)
-    dtheta        = (theta_max - theta_min) / args.npolar
-    nr            = int(1 + np.log10(tphysical/r0)/dtheta)
+    nr            = args.nr 
+    dlogr         = np.log10(tphysical / r0) / (nr - 1)
+    npolar        = int(theta_max / dlogr + 1)
+    theta         = np.linspace(theta_min, theta_max, npolar)
     times         = np.geomspace(t, tphysical, nr)
     gamma_shock   = calc_shock_lorentz_gamma(ell, times, args.k)
     r             = calc_shock_radius(gamma_shock, times, args.bmk_m)
@@ -141,7 +142,7 @@ def main():
         
         if (t - t_last) >= args.tinterval:
             n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
-            file_name = f'{data_dir}{args.npolar}.chkpt.{i:03}.h5'
+            file_name = f'{data_dir}{npolar}.chkpt.{i:03}.h5'
             with h5py.File(f'{file_name}', 'w') as f:
                 print(f'[Writing to {file_name}]')
                 beta = (1.0 - (gamma_fluid)**(-2.0))**0.5
@@ -161,17 +162,17 @@ def main():
                 sim_info.attrs['x2min']        = theta_min
                 sim_info.attrs['x2max']        = theta_max
                 sim_info.attrs['nx']           = nr 
-                sim_info.attrs['ny']           = args.npolar
+                sim_info.attrs['ny']           = npolar
                 sim_info.attrs['linspace']     = False 
             
             if not args.nd_plot:
                 if args.var == 'gamma_beta':
                     gb  = (gamma_fluid**2 - 1.0)**0.5
-                    ax.semilogx(r, gb[args.tidx])
+                    ax.semilogx(r/ell, gb[args.tidx])
                 elif args.var == 'rho':
-                    ax.semilogx(r, rho[args.tidx])
+                    ax.semilogx(r/ell, rho[args.tidx])
                 elif args.var == 'pressure':
-                    ax.semilogx(r, pressure[args.tidx])
+                    ax.semilogx(r/ell, pressure[args.tidx])
                     
             t_last = t 
             i += 1
@@ -193,7 +194,7 @@ def main():
         else:
             ylabel = r'$\gamma \beta_{\rm fluid}$'
         
-        ax.set_title(rf'2D BMK Problem at t = {t:.1f}, $\theta$ ={theta[args.tidx]:.1f} N = {args.npolar} $\times$ {nr}, k={args.k:.1f}')
+        ax.set_title(rf'2D BMK Problem at t = {t:.1f}, $\theta$ ={theta[args.tidx]:.1f} N = {npolar} $\times$ {nr}, k={args.k:.1f}')
         ax.set_ylabel(ylabel)
         ax.set_xlabel(r'$r/\ell$')
         ax.spines['right'].set_visible(False)
