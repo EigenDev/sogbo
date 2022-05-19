@@ -59,7 +59,7 @@ def main():
     parser.add_argument('--nd_plot',   help='set if want full 2D plot', default=False, action='store_true', dest='nd_plot')
     parser.add_argument('--full_sphere',   help='set if want to account for full sphere', default=False, action='store_true', dest='full_sphere')
     parser.add_argument('--save',   help='flag to save figure. takes name of figure as arg', dest='save', default=None, type=str)
-    parser.add_argument('--plot', dest='plot', help='set if want to see plot', default=False)
+    parser.add_argument('--plot', dest='plot', help='set if want to see plot', default=False, action='store_true')
     args = parser.parse_args()
     
     data_dir   = args.data_dir
@@ -117,15 +117,6 @@ def main():
     i = 0
     ells  = []
     t_last = 0.0
-    
-    chng = 0
-    a    = 0
-    for t in times:
-        if (t - a) >= args.tinterval:
-            a = t
-            chng += 1
-    
-    print(f"Total chkpt files: {chng}")
     for tidx, t in enumerate(times):
         # Solution only physical when gamma_shock**2/2 >= chi
         chi_critical = 0.5 * gamma_shock[tidx]**2
@@ -142,7 +133,7 @@ def main():
         pressure[:, chi > chi_critical]    = 1e-10
         gamma_fluid[:, chi > chi_critical] = 1
         
-        if (t - t_last) >= args.tinterval:
+        if True:
             n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
             file_name = f'{data_dir}{npolar}.chkpt.{i:03}.h5'
             with h5py.File(f'{file_name}', 'w') as f:
@@ -176,8 +167,8 @@ def main():
                         ax.semilogx(r/ell, rho[args.tidx])
                     elif args.var == 'pressure':
                         ax.semilogx(r/ell, pressure[args.tidx])
-                    
-            t_last = t 
+                        
+            t_last = t
             i += 1
 
     if args.plot:
@@ -217,7 +208,7 @@ def main():
                 ax.pcolormesh(-thetta, rr, pressure, norm=norm, shading='auto')
                 ylabel = 'p'
             else:
-                norm = mcolors.PowerNorm(gamma=0.5)
+                norm = mcolors.PowerNorm(gamma=0.5, vmin=0.9, vmax=1.1) 
                 c = ax.pcolormesh(thetta, rr, gamma_fluid, norm=norm, shading='auto')
                 ax.pcolormesh(-thetta, rr, gamma_fluid, norm=norm, shading='auto')
                 ylabel = r'$\gamma \beta_{\rm fluid}$'

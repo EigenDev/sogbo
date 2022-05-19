@@ -83,41 +83,31 @@ def main():
         
     # Initial Conditions 
     e0     = args.e0           # initial energy
-    rho0   = args.rho0         # initial density at shock radius
-    ell    = (e0/rho0 * args.rinit**args.k)**(1/(3 - args.k))  # inital length scale
+    rho0   = args.rho0         # initial density
+    ell    = (e0/(rho0 * args.rinit**args.k))**(1/(3 - args.k))  # inital length scale
     t      = args.t0           # initial simulation time
-    rmax   = args.rmax 
-    length_scale = ((e0 * e_scale / (rho0 * rho_scale * c**2))**(1/3)).to(units.cm)
-    time_scale   = length_scale / const.c.cgs 
     
-    # BMK breaks down when gamma_shock <= sqrt(2)
     tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell * 2.0 ** (-1.0/3.0)
-    times         = np.geomspace(t, tphysical, args.nzones)
+    gamma_shock0  = calc_gamma_shock(ell, t, args.k)
+    r0            = calc_shock_radius(gamma_shock0, t, args.bmk_m)
+    nr            = args.nzones
+    times         = np.geomspace(t, tphysical, nr)
     gamma_shock   = calc_gamma_shock(ell, times, args.k)
     r             = calc_shock_radius(gamma_shock, times, args.bmk_m)
-    r0            = r[0]
-    gamma_max0    = calc_fluid_gamma_max(ell, t, args.k)
     
-    # ell = (e0 / rho0 / r0**args.k)**(1.0 / (3.0 - args.k))
     # Initial arrays
     gamma_fluid = np.ones_like(r)
-    rho         = np.ones_like(r) * rho0 * (r/r[0])**(-args.k)
+    rho         = np.ones_like(r) * rho0 * (r/r0)**(-args.k)
     pressure    = rho * 1e-10
+    
+    gamma_fluid[0] = gamma_shock0 / (2.0**0.5)
+    interval = 0.0
         
     if args.plot:
         fig, ax  = plt.subplots(1, 1, figsize=(4,4))
     
-    ells  = []
-    upstream = 1
     i = 0
-    t_last = 0.0
-    chng = 0
-    a    = 0
-    for t in times:
-        if (t - a) >= args.tinterval:
-            a = t
-            chng += 1
-    print(f"Total chkpt files: {chng}")
+    t_last = 0
     for tidx, t in enumerate(times):  
         # Solution only physical when gamma_shock**2/2 >= chi
         chi_critical = 0.5 * gamma_shock[tidx]**2 
@@ -133,7 +123,7 @@ def main():
         pressure[chi > chi_critical]    = 1e-10
         gamma_fluid[chi > chi_critical] = 1
 
-        if (t - t_last) >= args.tinterval:
+        if True:
             n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
             file_name = f'{data_dir}{args.nzones}.chkpt.{i:03}.h5'
             with h5py.File(f'{file_name}', 'w') as f:
@@ -151,6 +141,7 @@ def main():
                 sim_info.attrs['x1max']        = r[-1] 
                 sim_info.attrs['Nx']           = args.nzones 
                 sim_info.attrs['linspace']     = False 
+                
             if args.plot:
                 if args.var == 'gamma_beta':
                     gb  = (gamma_fluid**2 - 1.0)**0.5
@@ -160,7 +151,9 @@ def main():
                     ax.semilogx(r, rho)
                 elif args.var == 'pressure':
                     ax.semilogx(r, pressure)
-
+            
+            print(t - t_last)
+            zzz = input('')
             t_last = t
             i += 1
     

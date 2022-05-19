@@ -218,6 +218,11 @@ def read_2d_file(filename: str) -> Union[dict,dict,dict]:
         except:
             gamma = 4./3.
         
+        try:
+            dt = ds.attrs['dt']
+        except:
+            pass
+        
         # Check for garbage value
         if gamma < 1:
             gamma = 4./3. 
@@ -290,6 +295,9 @@ def read_2d_file(filename: str) -> Union[dict,dict,dict]:
         W = 1/np.sqrt(1.0 -(v1**2 + v2**2))
         beta = np.sqrt(v1**2 + v2**2)
         
+        if 'dt' in locals():
+            setup['dt']      = dt 
+            
         fields['rho']          = rho
         fields['v1']           = v1 
         fields['v2']           = v2 

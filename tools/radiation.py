@@ -110,9 +110,6 @@ def sari_piran_narayan_99(
 
     beta_vec = beta * storage['rhat']
     obs_hat  = storage['obs_hat']
-    ndim     = storage['ndim']
-    dvolume  = storage['dvolume']
-    
     
     # Calculate the maximum flux based on the average bolometric power per electron
     nu_c              = util.calc_nu(gamma_crit, nu_g)                                   # Critical frequency
@@ -122,35 +119,26 @@ def sari_piran_narayan_99(
     total_power       = storage['dvolume'] * emissivity                                  # Total emitted power per unit frequency in each cell volume
     flux_max          = total_power * delta_doppler ** 2.0                               # Maximum flux 
     
-    storage['t_obs']     = t_obs
-    storage['t_prime']   = t_prime
-    t_obs                = t_obs.to(units.day)
+    storage['t_obs']   = t_obs
+    storage['t_prime'] = t_prime
+    t_obs              = t_obs.to(units.day)
     
     # the effective lifetime of the emitting cell must be accounted for
     dt_obs = tbin_edges[1:] - tbin_edges[:-1]
     dt_day = dt.to(units.day)
-    
-    emis = emissivity
+
     # loop through the given frequencies and put them in their respective locations in dictionary
     for freq in args.nu:
         # The frequency we see is doppler boosted, so account for that
         nu_source = freq * units.Hz / delta_doppler
-        ff = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = ndim, on_axis = storage['on_axis'])
-
-        # if True:
-        #     max_coord = w[0].argmax()
-        #     gamc      = gamma_crit[0,max_coord]
-        #     gamm      = gamma_min[0,max_coord]
-        #     rcoord    = storage['rr'][0, max_coord] * util.scales.length_scale
-        #     print("te: {:.2e}, w: {:.2f}, em: {:.2e}, b: {:.2f}, r: {:.2e}, gc: {:.2e}, gm: {:.2e}, j: {:.2e}".format(t_prime.value, w[0,max_coord], emis.value[0, max_coord], bfield.value[0,max_coord], rcoord.value, gamc.value, gamm.value, ff.value[0, max_coord] / storage['dvolume'][0, max_coord].value))
-        #     zzz = input('')
+        ff = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = storage['ndim'], on_axis = storage['on_axis'])
         ff = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
-
+        
         # place the fluxes in the appropriate time bins
         for idx, t1 in enumerate(tbin_edges[:-1]):
             t2 = tbin_edges[idx + 1]
-            flux_array[freq][idx] += dt_day / dt_obs[idx] * ff[(t_obs > t1) & (t_obs < t2)].sum()
-    
+            trat = dt_day / dt_obs[idx] if case != 0 else 1.0
+            flux_array[freq][idx] += trat * ff[(t_obs > t1) & (t_obs < t2)].sum()
     # nu_obs       = util.calc_nu(w, nu_g=nu_g)
     # tdays        = [1]
     # for tday in tdays:
