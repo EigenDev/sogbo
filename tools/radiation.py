@@ -3,7 +3,7 @@
 
 import numpy as np 
 import astropy.constants as const 
-import rad_hydro
+import sogbo
 import astropy.units as units 
 import matplotlib.pyplot as plt 
 import matplotlib.lines as mlines
@@ -147,17 +147,6 @@ def sari_piran_narayan_99(
             print(f"power cool: {power_cool[0,0].value}")
             print(f"before conversion: {(power_cool / (4.0 * np.pi * d **2))[0,0]}")
             zzz = input('')
-            
-    # nu_obs       = util.calc_nu(w, nu_g=nu_g)
-    # tdays        = [1]
-    # for tday in tdays:
-    #     for idx, nu1 in enumerate(fbin_edges[:-1]):
-    #         nu2       = fbin_edges[idx + 1]        
-    #         nu_source = np.sqrt(nu1 * nu2) / delta_doppler
-    #         ff        = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = ndim, on_axis = storage['on_axis'])
-    #         ff        = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
-            
-    #         flux_array[tday][idx] += dt_day / dt_obs[idx] * ff[(nu_obs > nu1) & (nu_obs < nu2)].sum()
         
 def log_events(
     fields:        dict, 
@@ -312,7 +301,7 @@ def main():
     parser.add_argument('--gamma0', dest='gamma0', help='Initial Lorentz factor', default=1.0, type=float)
     parser.add_argument('--dt', dest='dt', help='time step (in seconds) between checkpoints', default=0.1, type=float)
     parser.add_argument('--theta_obs', dest='theta_obs', help='observation angle in degrees', type=float, default=0.0)
-    parser.add_argument('--nu', dest='nu', help='Observed frequency', default=1e9, type=float, nargs='+')
+    parser.add_argument('--nu', dest='nu', help='Observed frequency', default=[1e9], type=float, nargs='+')
     parser.add_argument('--gamma_lims', dest='gamma_lims', help='lorentz gamma limits for electron distro', default=[1.0,100.0], nargs='+', type=float)
     parser.add_argument('--dim', dest='dim', help='number of dimensions in checkpoin data', default=1, choices=[1,2,3], type=int)
     parser.add_argument('--full_sphere', help='Set if want to account for radiaition over whole sphere. Default is half', default=False, action='store_true')
@@ -331,6 +320,8 @@ def main():
     parser.add_argument('--ylims', dest='ylims', help='y limits in plot', default=None, type=float, nargs='+') 
     parser.add_argument('--fig_dims', dest='fig_dims', help='figure dimensions', default=(5,4), type=float, nargs='+')
     parser.add_argument('--title', dest='title', help='title of plot', default=None)
+    parser.add_argument('--spectra', dest='spectra', help='set if want to plot spectra instead of light curve', default=False, action='store_true')
+    parser.add_argument('--times', dest='times', help='discrtete times for spectra calculation', default=[1], nargs='+', type=float)
     try:
         parser.add_argument('--compute', dest='compute', 
                             help='turn off if you have a data file you just want to plot immediately', 
@@ -377,12 +368,6 @@ def main():
     events_list   = np.zeros(shape=(len(files), 2))
     storage       = {}
     
-    # Make freq bins for spectra\
-    tday             = np.array([1, 10, 100, 1000])
-    fbin_edges       = np.geomspace(8e8, 3e17, nbin_edges) * units.Hz
-    freq_bins        = np.sqrt(fbin_edges[1:] * fbin_edges[:-1])
-    # flux_per_bin.update({j: np.zeros(nbins) * units.mJy for j in tday})
-    
     if args.cmap is not None:
         vmin, vmax = args.clims 
         cinterval = np.linspace(vmin, vmax, len(args.nu))
@@ -418,10 +403,9 @@ def main():
             sim_info['dt']              = setup['dt']
             sim_info['adiabatic_gamma'] = setup['ad_gamma']
             sim_info['current_time']    = setup['time']
-            rad_hydro.py_calc_fnu_2d(
+            sogbo.py_calc_fnu(
                 fields     = fields, 
                 tbin_edges = tbin_edges.value,
-                fbin_edges = fbin_edges.value,
                 flux_array = flux_per_bin,
                 mesh       = mesh, 
                 qscales    = scales_dict, 
@@ -429,34 +413,60 @@ def main():
                 chkpt_idx  = idx,
                 data_dim   = args.dim
             )
-            
-            # sari_piran_narayan_99(fields, args, tbin_edges=tbin_edges, fbin_edges=freq_bins_edges, flux_array = flux_per_bin, mesh=mesh, dset=setup, storage=storage, case=idx)
-            # zzz = input('')
             print(f"Processed file {file}", flush=True)
     
     
-    sim_lines = [0] * len(args.nu)
-    for nidx, freq in enumerate(args.nu):
-        power_of_ten = int(np.floor(np.log10(freq)))
-        front_part   = freq / 10**power_of_ten 
-        if front_part == 1.0:
-            freq_label = r'10^{%d}'%(power_of_ten)
-        else:
-            freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
+    
+    if args.spectra:
+        sim_lines = [0] * len(args.times)
+        for tidx, time in enumerate(args.times):
+            see_day_idx  = util.find_nearest(time_bins.value, time)[0]
+            
+            power_of_ten = int(np.floor(np.log10(time)))
+            front_part   = time / 10**power_of_ten 
+            if front_part == 1.0:
+                time_label = r'10^{%d}'%(power_of_ten)
+            else:
+                time_label = r'%.1f \times 10^{%d}'%(front_part, power_of_ten)
 
-        color = colors[nidx % len(args.nu)]
-        sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
-        
-        if args.example_curve is not None:
-            example_data = util.read_example_afterglow_data(args.example_curve)
-            nu_unit = freq * units.Hz
-            ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.5)
-        
-        if args.data_files is not None:
-            for dfile in args.data_files:
-                dat = util.read_my_datafile(dfile)
-                nu_unit = freq * units.Hz
-                ax.plot(dat['tday'], dat['fnu'][nu_unit], color=color, markersize=0.5, linestyle=next(linecycler))
+            color = colors[tidx % len(args.times)]
+            spectra = np.asanyarray([flux_per_bin[key][see_day_idx].value for key in flux_per_bin.keys()])
+            sim_lines[tidx], = ax.plot(args.nu, spectra, color=color, label=r'$t={} \rm day$'.format(time_label))
+            
+            if args.example_curve is not None:
+                example_data = util.read_example_afterglow_data(args.example_curve)
+                nearest_day  = util.find_nearest(example_data['tday'].value, time)[1] * units.day
+                ax.plot(example_data['freq'], example_data['spectra'][nearest_day], 'o', color=color, markersize=0.5)
+            
+            if args.data_files is not None:
+               for dfile in args.data_files:
+                   dat          = util.read_my_datafile(dfile)
+                   nearest_day  = util.find_nearest(dat['tday'].value, time)[0]
+                   spectra      = np.asanyarray([dat['fnu'][key][nearest_day].value for key in dat['fnu'].keys()])
+                   ax.plot(dat['freq'], spectra, color=color, markersize=0.5)
+    else:
+        sim_lines = [0] * len(args.nu)
+        for nidx, freq in enumerate(args.nu):
+            power_of_ten = int(np.floor(np.log10(freq)))
+            front_part   = freq / 10**power_of_ten 
+            if front_part == 1.0:
+                freq_label = r'10^{%d}'%(power_of_ten)
+            else:
+                freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
+
+            color = colors[nidx % len(args.nu)]
+            sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+            
+            if args.example_curve is not None:
+                example_data = util.read_example_afterglow_data(args.example_curve)
+                nu_unit      = freq * units.Hz
+                ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.5)
+            
+            if args.data_files is not None:
+                for dfile in args.data_files:
+                    dat = util.read_my_datafile(dfile)
+                    nu_unit = freq * units.Hz
+                    ax.plot(dat['tday'], dat['fnu'][nu_unit], color=color, markersize=0.5, linestyle=next(linecycler))
 
     # Save the data
     if args.compute:
@@ -496,22 +506,29 @@ def main():
             ax.set_title(r'$ \rm Light \ curve \ for \ conical \ BMK \ Test$')
     
     ylims = args.ylims if args.ylims else (1e-11, 1e4)
-    ax.set_xlim(tbound1.value, tbound2.value)
     ax.set_ylim(*ylims)
     ax.set_yscale('log')
     ax.set_xscale('log')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.set_xlabel(r'$t_{\rm obs} [\rm day]$')
     ax.set_ylabel(r'$\rm Flux \ Density \ [\rm mJy]$')
-    ax.legend()
+    if args.spectra:
+        if args.xlims is not None:
+            ax.set_xlim(*args.xlims)
+        ax.set_xlabel(r'$\nu_{\rm obs} [\rm Hz]$')
+    else:
+        ax.set_xlim(tbound1.value, tbound2.value)
+        ax.set_xlabel(r'$t_{\rm obs} [\rm day]$')
+    
     if args.example_curve is not None:
         label = args.example_label
         example = mlines.Line2D([0], [0], marker='o', color='w', label=label,
                           markerfacecolor='grey', markersize=5)
         
         ax.legend(handles=[*sim_lines, example])
-        ax.axvline(3.5, linestyle='--', color='red')
+        # ax.axvline(3.5, linestyle='--', color='red')
+    else:
+        ax.legend()
     if args.save:
         file_str = f"{args.save}".replace(' ', '_')
         print(f'saving as {file_str}')
