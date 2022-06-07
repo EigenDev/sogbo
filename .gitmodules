@@ -1,0 +1,3 @@
+[submodule "/home/mdupont/research/radiation/units_lib"]
+	path = /home/mdupont/research/radiation/units_lib
+	url = git@github.com:EigenDev/units_lib.git

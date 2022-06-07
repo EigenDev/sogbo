@@ -1,4 +1,9 @@
 data/
 *.pdf
 *.png
+*.h5
+*.so
+tools/rad_hydro.cpp
 __pycache__/
+plots/*
+data_files/*

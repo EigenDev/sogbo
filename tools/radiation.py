@@ -3,6 +3,7 @@
 
 import numpy as np 
 import astropy.constants as const 
+import rad_hydro
 import astropy.units as units 
 import matplotlib.pyplot as plt 
 import matplotlib.lines as mlines
@@ -70,30 +71,26 @@ def sari_piran_narayan_99(
     if case == 0:
         on_axis = False
         # on axis observers don't need phi zones
-        if args.theta_obs == 0:
-            on_axis = True
-            rr, thetta, ndim = util.generate_mesh(args, mesh)
-        else:
-            rr, thetta, phii, ndim = util.generate_mesh(args, mesh)
-            
+        util.generate_pseudo_mesh(args, mesh, expand_space=True)
+        
         # Calc cell volumes
         if on_axis:
-            dvolume = util.calc_cell_volume2D(rr, thetta) * util.scales.length_scale **3
+            dvolume = util.calc_cell_volume2D(mesh['rr'], mesh['thetta']) * util.scales.length_scale **3
         else:
-            dvolume = util.calc_cell_volume3D(rr, thetta, phii) * util.scales.length_scale ** 3
+            dvolume = util.calc_cell_volume3D(mesh['rr'], mesh['thetta'], mesh['phii']) * util.scales.length_scale ** 3
         
         if on_axis:
-            rhat = np.array([np.sin(thetta), np.zeros_like(thetta), np.cos(thetta)])  # radial unit vector        
+            rhat = np.array([np.sin(mesh['thetta']), np.zeros_like(mesh['thetta']), np.cos(mesh['thetta'])])  # radial unit vector        
         else:
-            rhat = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radial unit vector  
+            rhat = np.array([np.sin(mesh['thetta'])*np.cos(mesh['phii']), np.sin(mesh['thetta'])*np.sin(mesh['phii']), np.cos(mesh['thetta'])])  # radial unit vector  
         
         # Place observer along chosen axis
-        theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(thetta)
-        obs_hat    = np.array([np.sin(theta_obs), np.zeros_like(thetta), np.cos(theta_obs)])
+        theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(mesh['thetta'])
+        obs_hat    = np.array([np.sin(theta_obs), np.zeros_like(mesh['thetta']), np.cos(theta_obs)])
         if on_axis:
-            obs_idx    = util.find_nearest(thetta[:,0], np.deg2rad(args.theta_obs))[0]
+            obs_idx    = util.find_nearest(mesh['thetta'][:,0], np.deg2rad(args.theta_obs))[0]
         else:
-            obs_idx    = util.find_nearest(thetta[0,:,0], np.deg2rad(args.theta_obs))[0]
+            obs_idx    = util.find_nearest(mesh['thetta'][0,:,0], np.deg2rad(args.theta_obs))[0]
             
         storage['obs_idx'] = obs_idx
         # Store everything in a dictionary that is constant
@@ -102,7 +99,7 @@ def sari_piran_narayan_99(
         storage['ndim']     = ndim
         storage['dvolume']  = dvolume
         storage['on_axis']  = on_axis
-        storage['rr']       = rr
+        storage['rr']       = mesh['rr']
         t_obs   = t_prime - rr * util.scales.length_scale * util.vector_dotproduct(rhat, obs_hat) / const.c.cgs
     else:
         dt_chkpt = t_prime - storage['t_prime']
@@ -131,14 +128,26 @@ def sari_piran_narayan_99(
     for freq in args.nu:
         # The frequency we see is doppler boosted, so account for that
         nu_source = freq * units.Hz / delta_doppler
-        ff = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = storage['ndim'], on_axis = storage['on_axis'])
-        ff = (ff / (4.0 * np.pi * d **2)).to(units.mJy)
+        power_cool = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = storage['ndim'], on_axis = storage['on_axis'])
+        ff = (power_cool / (4.0 * np.pi * d **2)).to(units.mJy)
         
         # place the fluxes in the appropriate time bins
+        t_obs_day = t_obs.to(units.day)
         for idx, t1 in enumerate(tbin_edges[:-1]):
             t2 = tbin_edges[idx + 1]
             trat = dt_day / dt_obs[idx] if case != 0 else 1.0
             flux_array[freq][idx] += trat * ff[(t_obs > t1) & (t_obs < t2)].sum()
+            print(f"victory!")
+            print(f"{t1} --- {t2}")
+            print(f"bin:{t2 - t1}")
+            print(f"t_prime: {t_prime}")
+            print(f"observer time: {t_obs_day[0][0]}")
+            print(f"added flux: {trat * ff[0].sum()}");
+            print(f"boosted power: {flux_max[0,0].value}")
+            print(f"power cool: {power_cool[0,0].value}")
+            print(f"before conversion: {(power_cool / (4.0 * np.pi * d **2))[0,0]}")
+            zzz = input('')
+            
     # nu_obs       = util.calc_nu(w, nu_g=nu_g)
     # tdays        = [1]
     # for tday in tdays:
@@ -321,6 +330,7 @@ def main():
     parser.add_argument('--xlims', dest='xlims', help='x limits in plot', default=None, type=float, nargs='+')
     parser.add_argument('--ylims', dest='ylims', help='y limits in plot', default=None, type=float, nargs='+') 
     parser.add_argument('--fig_dims', dest='fig_dims', help='figure dimensions', default=(5,4), type=float, nargs='+')
+    parser.add_argument('--title', dest='title', help='title of plot', default=None)
     try:
         parser.add_argument('--compute', dest='compute', 
                             help='turn off if you have a data file you just want to plot immediately', 
@@ -369,9 +379,9 @@ def main():
     
     # Make freq bins for spectra\
     tday             = np.array([1, 10, 100, 1000])
-    freq_bins_edges  = np.geomspace(8e8, 3e17, nbin_edges) * units.Hz
-    freq_bins        = np.sqrt(freq_bins_edges[1:] * freq_bins_edges[:-1])
-    flux_per_bin.update({j: np.zeros(nbins) * units.mJy for j in tday})
+    fbin_edges       = np.geomspace(8e8, 3e17, nbin_edges) * units.Hz
+    freq_bins        = np.sqrt(fbin_edges[1:] * fbin_edges[:-1])
+    # flux_per_bin.update({j: np.zeros(nbins) * units.mJy for j in tday})
     
     if args.cmap is not None:
         vmin, vmax = args.clims 
@@ -381,13 +391,47 @@ def main():
     else:
         colors     = ['c', 'y', 'm', 'k'] # list of basic colors
         
-    # linestyles = ['-','--','-.',':']  # list of basic linestyles
-    linestyles = ['-']
+    linestyles = ['-','--','-.',':']  # list of basic linestyles
+    lines = ["-","--","-.",":"]
+    linecycler = cycler.cycle(lines)
+    
+    scales_dict = {
+        'time_scale':   util.scales.time_scale.value,
+        'length_scale': util.scales.length_scale.value,
+        'rho_scale':    util.scales.rho_scale.value,
+        'pre_scale':    util.scales.pre_scale.value,
+        'v_scale':      1.0
+    }   
+    theta_obs = np.deg2rad(args.theta_obs)
+    sim_info = {
+        'theta_obs':       theta_obs,
+        'nus':             freqs.value
+    }
+    
     
     if args.compute:
         for idx, file in enumerate(files):
             fields, setup, mesh = file_reader(file)
-            sari_piran_narayan_99(fields, args, tbin_edges=tbin_edges, fbin_edges=freq_bins_edges, flux_array = flux_per_bin, mesh=mesh, dset=setup, storage=storage, case=idx)
+            # Generate a pseudo mesh if computing off-axis afterglows
+            util.generate_pseudo_mesh(args, mesh)
+            
+            sim_info['dt']              = setup['dt']
+            sim_info['adiabatic_gamma'] = setup['ad_gamma']
+            sim_info['current_time']    = setup['time']
+            rad_hydro.py_calc_fnu_2d(
+                fields     = fields, 
+                tbin_edges = tbin_edges.value,
+                fbin_edges = fbin_edges.value,
+                flux_array = flux_per_bin,
+                mesh       = mesh, 
+                qscales    = scales_dict, 
+                sim_info   = sim_info,
+                chkpt_idx  = idx,
+                data_dim   = args.dim
+            )
+            
+            # sari_piran_narayan_99(fields, args, tbin_edges=tbin_edges, fbin_edges=freq_bins_edges, flux_array = flux_per_bin, mesh=mesh, dset=setup, storage=storage, case=idx)
+            # zzz = input('')
             print(f"Processed file {file}", flush=True)
     
     
@@ -400,20 +444,19 @@ def main():
         else:
             freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
 
-        style = linestyles[nidx % len(linestyles)]
         color = colors[nidx % len(args.nu)]
-        sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], linestyle=style, color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+        sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
         
         if args.example_curve is not None:
             example_data = util.read_example_afterglow_data(args.example_curve)
             nu_unit = freq * units.Hz
-            ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=1.0)
+            ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.5)
         
         if args.data_files is not None:
             for dfile in args.data_files:
                 dat = util.read_my_datafile(dfile)
                 nu_unit = freq * units.Hz
-                ax.plot(dat['tday'], dat['fnu'][nu_unit], '-o', color=color, markersize=0.5)
+                ax.plot(dat['tday'], dat['fnu'][nu_unit], color=color, markersize=0.5, linestyle=next(linecycler))
 
     # Save the data
     if args.compute:
@@ -445,10 +488,12 @@ def main():
     else:
         tbound1 = time_bins[0]
         tbound2 = time_bins[-1]
-    if args.dim == 1:
-        ax.set_title(r'$ \rm Light \  curve \ for \ spherical \ BMK \ Test$')
-    else:
-        ax.set_title(r'$ \rm Light \ curve \ for \ conical \ BMK \ Test$')
+        
+    if args.title is not None:
+        if args.dim == 1:
+            ax.set_title(r'$ \rm Light \  curve \ for \ spherical \ BMK \ Test$')
+        else:
+            ax.set_title(r'$ \rm Light \ curve \ for \ conical \ BMK \ Test$')
     
     ylims = args.ylims if args.ylims else (1e-11, 1e4)
     ax.set_xlim(tbound1.value, tbound2.value)
@@ -463,7 +508,7 @@ def main():
     if args.example_curve is not None:
         label = args.example_label
         example = mlines.Line2D([0], [0], marker='o', color='w', label=label,
-                          markerfacecolor='black', markersize=5)
+                          markerfacecolor='grey', markersize=5)
         
         ax.legend(handles=[*sim_lines, example])
         ax.axvline(3.5, linestyle='--', color='red')

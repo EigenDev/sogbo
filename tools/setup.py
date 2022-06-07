@@ -1,0 +1,41 @@
+import numpy
+import os 
+from setuptools import setup, Extension
+from Cython.Build import cythonize
+from Cython.Distutils import build_ext
+from distutils import sysconfig
+
+def get_ext_filename_without_platform_suffix(filename):
+    name, ext  = os.path.splitext(filename)
+    ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')
+
+    if ext_suffix == ext:
+        return filename
+
+    ext_suffix = ext_suffix.replace(ext, '')
+    idx = name.find(ext_suffix)
+
+    if idx == -1:
+        return filename
+    else:
+        return name[:idx] + ext
+
+class BuildExtWithoutPlatformSuffix(build_ext):
+    def get_ext_filename(self, ext_name):
+        filename = super().get_ext_filename(ext_name)
+        return get_ext_filename_without_platform_suffix(filename)
+extensions = [
+    Extension("rad_hydro", 
+        sources=["rad_hydro.pyx", "rad.cpp", "../units_lib/units.cpp"],
+        include_dirs=[numpy.get_include(), "../units_lib"],
+        extra_compile_args=['-fopenmp'],
+        extra_link_args=['-fopenmp']
+    )
+]
+setup(
+    name='Hello world app',
+    cmdclass={'build_ext': BuildExtWithoutPlatformSuffix},
+    ext_modules=cythonize(extensions),
+    include_dirs=[numpy.get_include()],
+    zip_safe=False,
+)
