@@ -64,7 +64,6 @@ def calc_solid_angle3D(theta: np.ndarray, phi: np.ndarray) -> np.ndarray:
     
     return np.sin(tcenter) * dth * dphi
     
-    
 def calc_cell_volume1D(r: np.ndarray) -> np.ndarray:
     rvertices = np.sqrt(r[1:] * r[:-1])
     rvertices = np.insert(rvertices,  0, r[0])
@@ -507,7 +506,7 @@ def find_nearest(arr: list, val: float) -> int:
         return idx 
     
 
-def generate_mesh(args: argparse.ArgumentParser, mesh: dict):
+def generate_pseudo_mesh(args: argparse.ArgumentParser, mesh: dict, expand_space: bool = False):
     """
     Generate a real or pseudo 3D mesh based on checkpoint data
     
@@ -534,22 +533,22 @@ def generate_mesh(args: argparse.ArgumentParser, mesh: dict):
         theta_max     = np.pi / 2 if not args.full_sphere else np.pi
         theta_samples = int(theta_max / dlogr + 1) if not args.theta_samples else args.theta_samples 
         theta         = np.linspace(0.0, theta_max, theta_samples)
+        mesh['theta'] = theta 
         
     if 'phi' in mesh:
         ndim += 1
         phi  = mesh['phi']
     else:
         phi = np.linspace(0.0, 2.0 * np.pi, args.phi_samples)
-
-    if args.theta_obs == 0:
-        rr, thetta = np.meshgrid(r, theta)
-        return rr, thetta, ndim
-    else:
+        mesh['phi']   = phi 
+        
+    if expand_space:
         thetta, phii, rr = np.meshgrid(theta, phi, r)
-        return rr, thetta, phii, ndim
+        mesh['rr'] = rr 
+        mesh['thetta'] = thetta 
+        mesh['phii'] = phii 
     
     
-
 def get_tbin_edges(
     args: argparse.ArgumentParser, 
     file_reader: Callable,
@@ -576,28 +575,30 @@ def get_tbin_edges(
     t_end = setup_final['time'] * scales.time_scale
     
     if on_axis:
-        rr0, thetta = generate_mesh(args, mesh_init)[:-1]
-        rrf         = generate_mesh(args, mesh_final)[0]
-        rhat        = np.array([np.sin(thetta), np.zeros_like(thetta), np.cos(thetta)])  # radial unit vector  
+        generate_pseudo_mesh(args, mesh_init , expand_space=True)
+        generate_pseudo_mesh(args, mesh_final, expand_space=True)
+        rhat        = np.array([np.sin(mesh_init['thetta']), np.zeros_like(mesh_init['thetta']), np.cos(mesh_init['thetta'])])  # radial unit vector  
     else:
-        rr0, thetta, phii = generate_mesh(args, mesh_init)[:-1]
-        rrf               = generate_mesh(args, mesh_final)[0]
-        rhat              = np.array([np.sin(thetta)*np.cos(phii), np.sin(thetta)*np.sin(phii), np.cos(thetta)])  # radial unit vector                                                                                 # electron particle number index   
+        generate_pseudo_mesh(args, mesh_init , expand_space=True)
+        generate_pseudo_mesh(args, mesh_final, expand_space=True)
+        rhat        = np.array([np.sin(mesh_init['thetta'])*np.cos(mesh_init['phii']), 
+                                np.zeros_like(mesh_init['thetta'])*np.sin(mesh_init['phii']),
+                                np.cos(mesh_init['thetta'])])
     
     # Place observer along chosen axis
     theta_obs_rad = np.deg2rad(args.theta_obs)
-    theta_obs     = theta_obs_rad * np.ones_like(thetta)
-    obs_hat       = np.array([np.sin(theta_obs), np.zeros_like(thetta), np.cos(theta_obs)])
+    theta_obs     = theta_obs_rad * np.ones_like(mesh_init['thetta'])
+    obs_hat       = np.array([np.sin(theta_obs), np.zeros_like(mesh_init['thetta']), np.cos(theta_obs)])
     r_dot_nhat    = vector_dotproduct(rhat, obs_hat)
     
         
-    t_obs_min  = t_beg - rr0 * scales.time_scale * r_dot_nhat
-    t_obs_max  = t_end - rrf * scales.time_scale * r_dot_nhat
+    t_obs_min  = t_beg - mesh_init['rr'] * scales.time_scale * r_dot_nhat
+    t_obs_max  = t_end - mesh_final['rr'] * scales.time_scale * r_dot_nhat
 
     if on_axis:
-        theta_idx = find_nearest(thetta[:,0], theta_obs_rad)[0]
+        theta_idx = find_nearest(mesh_init['thetta'][:,0], theta_obs_rad)[0]
     else:
-        theta_idx  = find_nearest(thetta[0,:,0], theta_obs_rad)[0]
+        theta_idx  = find_nearest(mesh_init['thetta'][0,:,0], theta_obs_rad)[0]
     t_obs_beam = t_obs_min[0][theta_idx]
     t_obs_beam = t_obs_beam[t_obs_beam >= 0]
     
