@@ -3,6 +3,8 @@ data/
 *.png
 *.h5
 *.so
+*.o
+.vscode/
 tools/rad_hydro.cpp
 __pycache__/
 plots/*
