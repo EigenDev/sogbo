@@ -89,7 +89,7 @@ def main():
     gamma_shock0  = calc_shock_lorentz_gamma(ell, t, args.k)
     r0            = calc_shock_radius(gamma_shock0, t, args.bmk_m)
     # grid constraints
-    theta_max     = np.pi
+    theta_max     = np.pi if args.full_sphere else np.pi / 2
     theta_min     = 0.0
     nr            = args.nr 
     dlogr         = np.log10(tphysical / r0) / (nr - 1)
