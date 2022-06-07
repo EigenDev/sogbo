@@ -5,10 +5,9 @@ cimport numpy as np
 cimport rad_hydro
 
 
-def py_calc_fnu_2d(
+def py_calc_fnu(
     fields:         dict, 
     tbin_edges:     np.ndarray,
-    fbin_edges:     np.ndarray,
     flux_array:     dict,
     mesh:           dict, 
     qscales:        dict, 
@@ -16,6 +15,20 @@ def py_calc_fnu_2d(
     chkpt_idx:      int,
     data_dim:       int = 2
 ):
+    """
+    Calculate the spectral flux from hydro data assuming a synchotron spectrum
+
+    Params:
+    ---------------------------------------
+    fields: Dictionary of the hydro variables
+    tbin_edges: a numpy ndarray of the time bin edges
+    flux_array: a dictionary for the flux storage
+    mesh:       a dictionary for the mesh central zones
+    qscales:    a dictionary for the physical quantitiy scales in the problem
+    sim_info:   a dictionary for the importnat simulation information like time, dt_chckpt, etc
+    chkpt_idx:  the checkpoint index value
+    data_dim:   the dimensions of the checkpoint data
+    """
     flattened_fields = np.array(
         [fields['rho'].flatten(),
         fields['gamma_beta'].flatten(),
@@ -62,7 +75,6 @@ def py_calc_fnu_2d(
                         flattened_fields, 
                         flattened_mesh,
                         tbin_edges,
-                        fbin_edges,
                         flattened_flux, 
                         chkpt_idx,
                         data_dim

@@ -280,7 +280,6 @@ namespace sogbo_rad
         std::vector<std::vector<double>> &fields,
         std::vector<std::vector<double>> &mesh,  
         std::vector<double> &tbin_edges,
-        std::vector<double> &fbin_edges,
         std::vector<double> &flux_array,
         const int chkpt_idx,
         const int data_dim
@@ -422,7 +421,7 @@ namespace sogbo_rad
                             }
                         }
                     }
-                } // end innder parallel loop
+                } // end inner parallel loop
                 
             } // end outer parallel loop
         }
