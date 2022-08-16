@@ -52,7 +52,7 @@ def main():
     parser.add_argument('--m',      help='BMK self similarity parameter', default=3, type=float, dest='bmk_m')
     parser.add_argument('--k',      help='Density gradient slope', default=0, type=float, dest='k')
     parser.add_argument('--rinit',  help='initial blast_wave radius', default=0.01, type=float, dest='rinit')
-    parser.add_argument('--data_dir', help='Data directory', default='data/bmk_twod', type=str, dest='data_dir')
+    parser.add_argument('--data_dir', help='Data directory', default='data/bmk_ring', type=str, dest='data_dir')
     parser.add_argument('--tinterval',      help='time intervals to plot', default=0.1, type=float, dest='tinterval')
     parser.add_argument('--theta_j',help='Opening angle of blast wave cone', default=np.pi, type=float, dest='theta_j')
     parser.add_argument('--tidx',   help='index for viewing angle of blast wave', default=0, type=int, dest='tidx')
