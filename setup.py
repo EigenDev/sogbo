@@ -27,19 +27,13 @@ class BuildExtWithoutPlatformSuffix(build_ext):
     
 extensions = [
     Extension("rad_hydro", 
-        sources=["src/rad_hydro.pyx", "src/rad.cpp", "units_lib/units.cpp"],
+        sources=["src/rad_hydro.pyx", "src/rad_units.cpp"],
         include_dirs=[numpy.get_include(), "units_lib"],
-        extra_compile_args=['-fopenmp'],
+        extra_compile_args=['-fopenmp', '-std=c++17'],
         extra_link_args=['-fopenmp']
     )
 ]
 setup(
-    name='sogbo',
-    version='0.0.1',
-    author='Marcus DuPont',
-    packages=['sogbo'],
     cmdclass={'build_ext': BuildExtWithoutPlatformSuffix},
     ext_modules=cythonize(extensions),
-    include_dirs=[numpy.get_include()],
-    zip_safe=False,
 )

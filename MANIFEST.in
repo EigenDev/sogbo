@@ -1,0 +1,8 @@
+include LICENSE
+include README.md 
+exclude src/rad_hydro.cpp
+include src/rad_hydro.pxd
+include src/rad.cpp
+include src/rad.hpp
+recursive-include units_lib/*.cpp
+exclude units_lib/main.cpp

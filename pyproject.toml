@@ -1,0 +1,14 @@
+[project]
+name = "sogbo"
+version = "0.1.0"
+description = "Generate electro-magnetic observables from hydro data"
+authors = [
+    {name = "Marcus DuPont", email="md4469@nyu.edu"}
+]
+license = {file = "LICENSE.txt"}
+readme = "README.md"
+requires-python = ">=3.6"
+keywords = []
+[build-system]
+requires = ["setuptools", "wheel", "Cython", "numpy"]
+build-backend = "setuptools.build_meta"
