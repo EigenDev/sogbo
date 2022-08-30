@@ -5,7 +5,7 @@
     @author Marcus DuPont
     @version 0.1 05/20/22
 */
-#include "rad.hpp"
+#include "rad_units.hpp"
 
 namespace sogbo_rad
 {

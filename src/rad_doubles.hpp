@@ -1,12 +1,11 @@
 /*
 Header file for low-level synchrotron radiation calculations
 */
-#ifndef RAD_HPP
-#define RAD_HPP
+#ifndef RAD_DOUBLES_HPP
+#define RAD_DOUBLES_HPP
 
 #include <vector>
-#include "../units_lib/units.hpp"
-#include "../units_lib/constants.hpp"
+#include "constants.hpp"
 
 namespace sogbo_rad
 {
@@ -40,12 +39,12 @@ namespace sogbo_rad
     /*
     The magnetic field behind the shock
     */
-    constexpr units::mag_field calc_shock_bfield(const units::edens rho_e, const double eps_b);
+    constexpr double calc_shock_bfield(const double rho_e, const double eps_b);
 
     /*
     The canonical gyration frequency for a particle in a magnetic field
     */
-    constexpr units::frequency calc_gyration_frequency(const units::mag_field bfield);
+    constexpr double calc_gyration_frequency(const double bfield);
 
     /**
         Calc bolometric synhrotron power
@@ -60,7 +59,7 @@ namespace sogbo_rad
         --------------------------------------
         Total synchrotron power
     */
-    constexpr units::power calc_total_synch_power(const double lorentz_gamma, const units::edens ub, const double beta);
+    constexpr double calc_total_synch_power(const double lorentz_gamma, const double ub, const double beta);
 
     /**
         Calculate the number of photons per energy (gamma_e) bin
@@ -80,11 +79,11 @@ namespace sogbo_rad
         number of photons per energy bin
     */
     const double calc_nphotons_per_bin(
-        units::volume    volume, 
-        units::ndens     n_e, 
-        units::frequency nu_g, 
-        units::edens     ub, 
-        units::mytime    dt,
+        double    volume, 
+        double     n_e, 
+        double nu_g, 
+        double     ub, 
+        double    dt,
         double gamma_e, 
         double beta,
         double p);
@@ -102,7 +101,7 @@ namespace sogbo_rad
     -------------------------------------
     calculate the number of photons emitted per electron in some energy bin
     */
-    constexpr double calc_nphotons_other(const units::power power, const units::frequency nu_c, const units::mytime dt);
+    constexpr double calc_nphotons_other(const double power, const double nu_c, const double dt);
 
     //  Power-law generator for pdf(x) ~ x^{g-1} for a<=x<=b
     // const double gen_random_from_powerlaw(double a, double b, double g, int size=1)
@@ -133,21 +132,21 @@ namespace sogbo_rad
         -------------------------------------
         number density of electrons at a given energy
     */ 
-    constexpr units::ndens calc_nelectrons_at_gamma_e(const units::ndens n_e, const double gamma_e, const double p);
+    constexpr double calc_nelectrons_at_gamma_e(const double n_e, const double gamma_e, const double p);
 
     // Calculate the synchrotron frequency as function of lorentz_factor
-    constexpr units::frequency calc_nu(const double gamma_e, const units::frequency nu_g);
+    constexpr double calc_nu(const double gamma_e, const double nu_g);
     
     // Calculate the critical Lorentz factor as function of time and magnetic field
-    constexpr double calc_critical_lorentz(const units::mag_field bfield, const units::mytime time);
+    constexpr double calc_critical_lorentz(const double bfield, const double time);
 
     // Calculate the maximum power per frequency as Eq. (5) in Sari, Piran. Narayan(1999)
-    constexpr units::energy calc_max_power_per_frequency(units::mag_field bfield);
+    constexpr double calc_max_power_per_frequency(double bfield);
     /**
      *  Calculate the peak emissivity per frequency per equation (A3) in
         https://iopscience.iop.org/article/10.1088/0004-637X/749/1/44/pdf
     */ 
-    constexpr units::emissivity calc_emissivity(const units::mag_field bfield, const units::ndens n, const double p);
+    constexpr double calc_emissivity(const double bfield, const double n, const double p);
 
     /*
         Calculate the minimum lorentz factor of electrons in the distribution
@@ -161,19 +160,19 @@ namespace sogbo_rad
         ------------------------------
         Minimum lorentz factor of electrons
     */
-    constexpr double calc_minimum_lorentz(const double eps_e, const units::edens e_thermal, const units::ndens n, const double p);
+    constexpr double calc_minimum_lorentz(const double eps_e, const double e_thermal, const double n, const double p);
 
     /*
     ~---------------------------------------
     ~Compute the flux according to https://arxiv.org/abs/astro-ph/9712005
     ~---------------------------------------
     */
-    const units::spec_power calc_powerlaw_flux(
-        const units::spec_power &power_max, 
+    const double calc_powerlaw_flux(
+        const double &power_max, 
         const double p,
-        const units::frequency nu_prime, 
-        const units::frequency nu_c, 
-        const units::frequency nu_m
+        const double nu_prime, 
+        const double nu_c, 
+        const double nu_m
     );
 
     const std::vector<double> calc_fnu_2d(

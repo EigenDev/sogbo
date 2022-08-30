@@ -1,7 +1,7 @@
 # distutils: language = c++
 
 from libcpp.vector cimport vector
-cdef extern from "rad.hpp" namespace "sogbo_rad":
+cdef extern from "rad_units.hpp" namespace "sogbo_rad":
     cdef struct sim_conditions:
         double dt, theta_obs, ad_gamma, current_time
         vector[double] nus
