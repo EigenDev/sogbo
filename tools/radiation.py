@@ -416,6 +416,30 @@ def main():
             print(f"Processed file {file}", flush=True)
     
     
+    # Save the data
+    if args.compute:
+        file_name = args.file_save
+        if os.path.splitext(args.file_save)[1] != '.h5':
+            file_name += '.h5'
+        
+        isFile = os.path.isfile(file_name)
+        dirname = os.path.dirname(file_name)
+        if os.path.exists(dirname) == False and dirname != '':
+            if not isFile:
+                # Create a new directory because it does not exist 
+                os.makedirs(dirname)
+                print(80*'=')
+                print(f"creating new directory named {dirname}...")
+            
+        print(80*"=")
+        print(f"Saving file as {file_name}...")
+        print(80*'=')
+        with h5py.File(file_name, 'w') as hf: 
+            fnu_save = np.array([flux_per_bin[key] for key  in flux_per_bin.keys()])
+            dset = hf.create_dataset('sogbo_data', dtype='f')
+            hf.create_dataset('nu',   data=[nu for nu in args.nu])
+            hf.create_dataset('fnu',  data=fnu_save)
+            hf.create_dataset('tbins', data=time_bins)
     
     if args.spectra:
         sim_lines = [0] * len(args.times)
@@ -467,31 +491,6 @@ def main():
                     dat = util.read_my_datafile(dfile)
                     nu_unit = freq * units.Hz
                     ax.plot(dat['tday'], dat['fnu'][nu_unit], color=color, markersize=0.5, linestyle=next(linecycler))
-
-    # Save the data
-    if args.compute:
-        file_name = args.file_save
-        if os.path.splitext(args.file_save)[1] != '.h5':
-            file_name += '.h5'
-        
-        isFile = os.path.isfile(file_name)
-        dirname = os.path.dirname(file_name)
-        if os.path.exists(dirname) == False and dirname != '':
-            if not isFile:
-                # Create a new directory because it does not exist 
-                os.makedirs(dirname)
-                print(80*'=')
-                print(f"creating new directory named {dirname}...")
-            
-        print(80*"=")
-        print(f"Saving file as {file_name}...")
-        print(80*'=')
-        with h5py.File(file_name, 'w') as hf: 
-            fnu_save = np.array([flux_per_bin[key] for key  in flux_per_bin.keys()])
-            dset = hf.create_dataset('sogbo_data', dtype='f')
-            hf.create_dataset('nu',   data=[nu for nu in args.nu])
-            hf.create_dataset('fnu',  data=fnu_save)
-            hf.create_dataset('tbins', data=time_bins)
     
     if args.xlims is not None:
         tbound1, tbound2 = np.asanyarray(args.xlims) * units.day 
