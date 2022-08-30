@@ -180,7 +180,6 @@ def main():
         if not args.nd_plot:
             if args.var == 'gamma_beta':
                 # Compare the t^-3/2 scaling with what was calculated
-                ells  = np.asanyarray(ells)
                 gamma_shock_scaling = gamma_shock / 2.0**0.5
                 gamma_shock_scaling[gamma_shock_scaling < 1.0] = 1.0
                 gb_scaling  = (gamma_shock_scaling**2 - 1.0)**0.5
