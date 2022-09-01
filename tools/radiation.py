@@ -25,7 +25,6 @@ SMALL_SIZE   = 8
 DEFAULT_SIZE = 10
 BIGGER_SIZE  = 12
 
-
     
 def sari_piran_narayan_99(
     fields:         dict, 
@@ -416,31 +415,32 @@ def main():
             print(f"Processed file {file}", flush=True)
     
     
-    # Save the data
-    if args.compute:
-        file_name = args.file_save
-        if os.path.splitext(args.file_save)[1] != '.h5':
-            file_name += '.h5'
-        
-        isFile = os.path.isfile(file_name)
-        dirname = os.path.dirname(file_name)
-        if os.path.exists(dirname) == False and dirname != '':
-            if not isFile:
-                # Create a new directory because it does not exist 
-                os.makedirs(dirname)
-                print(80*'=')
-                print(f"creating new directory named {dirname}...")
+        # Save the data
+        if args.compute:
+            file_name = args.file_save
+            if os.path.splitext(args.file_save)[1] != '.h5':
+                file_name += '.h5'
             
-        print(80*"=")
-        print(f"Saving file as {file_name}...")
-        print(80*'=')
-        with h5py.File(file_name, 'w') as hf: 
-            fnu_save = np.array([flux_per_bin[key] for key  in flux_per_bin.keys()])
-            dset = hf.create_dataset('sogbo_data', dtype='f')
-            hf.create_dataset('nu',   data=[nu for nu in args.nu])
-            hf.create_dataset('fnu',  data=fnu_save)
-            hf.create_dataset('tbins', data=time_bins)
+            isFile = os.path.isfile(file_name)
+            dirname = os.path.dirname(file_name)
+            if os.path.exists(dirname) == False and dirname != '':
+                if not isFile:
+                    # Create a new directory because it does not exist 
+                    os.makedirs(dirname)
+                    print(80*'=')
+                    print(f"creating new directory named {dirname}...")
+                
+            print(80*"=")
+            print(f"Saving file as {file_name}...")
+            print(80*'=')
+            with h5py.File(file_name, 'w') as hf: 
+                fnu_save = np.array([flux_per_bin[key] for key  in flux_per_bin.keys()])
+                dset = hf.create_dataset('sogbo_data', dtype='f')
+                hf.create_dataset('nu',   data=[nu for nu in args.nu])
+                hf.create_dataset('fnu',  data=fnu_save)
+                hf.create_dataset('tbins', data=time_bins)
     
+    color_cycle = cycler.cycle(colors)
     if args.spectra:
         sim_lines = [0] * len(args.times)
         for tidx, time in enumerate(args.times):
@@ -453,7 +453,7 @@ def main():
             else:
                 time_label = r'%.1f \times 10^{%d}'%(front_part, power_of_ten)
 
-            color = colors[tidx % len(args.times)]
+            color = next(color_cycle)
             spectra = np.asanyarray([flux_per_bin[key][see_day_idx].value for key in flux_per_bin.keys()])
             sim_lines[tidx], = ax.plot(args.nu, spectra, color=color, label=r'$t={} \rm day$'.format(time_label))
             
@@ -478,7 +478,7 @@ def main():
             else:
                 freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
 
-            color = colors[nidx % len(args.nu)]
+            color = next(color_cycle)
             sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
             
             if args.example_curve is not None:
