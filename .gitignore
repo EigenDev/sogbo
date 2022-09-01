@@ -10,3 +10,4 @@ sogbo.egg-info/
 __pycache__/
 plots/*
 data_files/*
+build/
