@@ -171,8 +171,6 @@ def main():
                     elif args.var == 'pressure':
                         ax.semilogx(r, pressure[args.tidx])
             
-            # print(t - t_last)
-            # zzz = input('')
             t_last = t 
             i += 1
 
