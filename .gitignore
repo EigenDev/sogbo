@@ -5,7 +5,7 @@ data/
 *.so
 *.o
 .vscode/
-tools/rad_hydro.cpp
+src/rad_hydro.cpp
 sogbo.egg-info/
 __pycache__/
 plots/*
