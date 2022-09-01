@@ -27,13 +27,15 @@ class BuildExtWithoutPlatformSuffix(build_ext):
     
 extensions = [
     Extension("rad_hydro", 
-        sources=["src/rad_hydro.pyx", "src/rad_units.cpp"],
+        sources=["src/rad_hydro.pyx", "src/rad_doubles.cpp"],
         include_dirs=[numpy.get_include(), "units_lib"],
         extra_compile_args=['-fopenmp', '-std=c++17'],
         extra_link_args=['-fopenmp']
     )
 ]
-setup(
-    cmdclass={'build_ext': BuildExtWithoutPlatformSuffix},
-    ext_modules=cythonize(extensions),
-)
+
+if __name__ == '__main__':
+    setup(
+        cmdclass={'build_ext': BuildExtWithoutPlatformSuffix},
+        ext_modules=cythonize(extensions),
+    )
