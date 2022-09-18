@@ -8,10 +8,11 @@ import astropy.units as units
 import numpy as np 
 import argparse 
 import matplotlib.pyplot as plt 
-    
+from astropy.cosmology import FlatLambdaCDM
 from typing import Union
 from typing import Callable
 
+cosmo = FlatLambdaCDM(H0=70 * units.km / units.s / units.Mpc, Tcmb0=2.725 * units.K, Om0=0.3)
 c = const.c.cgs
 # FONT SIZES
 class Scale:
@@ -470,6 +471,11 @@ def read_example_afterglow_data(filename: str) -> dict:
         
     return data_dict
 
+def get_dL(z):
+    if z > 0:
+        return cosmo.luminosity_distance(z).cgs 
+    else:
+        return 1e28 * units.cm
 def read_my_datafile(filename: str) -> dict:
     """
     Reads afterglow data from afterglow library (Zhang and MacFadyen 2009 or van Eerten et al. 2010)
