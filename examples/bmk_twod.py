@@ -8,6 +8,7 @@ import h5py
 import matplotlib.pyplot as plt 
 import matplotlib.colors as mcolors
 import os 
+import multiprocessing 
 
 def calc_shock_lorentz_gamma(l: float, t: float, k: float) -> float:
     """Calc shock lorentz factor"""
@@ -39,6 +40,29 @@ def calc_shock_radius(gamma_shock: float, t: float, m: float):
 def find_nearest(arr: np.ndarray, val: float):
     idx = np.argmin(np.abs(arr - val))
     return idx, arr[idx]
+
+def write_chkpt(kwargs):
+    file_name = kwargs['file_name']
+    with h5py.File(f'{file_name}', 'w') as f:
+        print(f'[Writing to {file_name}]')
+        sim_info = f.create_dataset('sim_info', dtype='i')
+        f.create_dataset('rho',   data=kwargs['rho'])
+        f.create_dataset('p',     data=kwargs['pressure'])
+        f.create_dataset('v1',    data=kwargs['beta'])
+        f.create_dataset('v2',    data=kwargs['null'])
+        f.create_dataset('radii', data=kwargs['r'])
+        sim_info.attrs['current_time'] = kwargs['t'] 
+        sim_info.attrs['dt']           = kwargs['t'] - kwargs['t_last']
+        sim_info.attrs['ad_gamma']     = 4.0 / 3.0 
+        sim_info.attrs['x1min']        = kwargs['x1min'] 
+        sim_info.attrs['x1max']        = kwargs['x1max'] 
+        sim_info.attrs['x2min']        = kwargs['x2min']
+        sim_info.attrs['x2max']        = kwargs['x2max']
+        sim_info.attrs['nx']           = kwargs['nx'] 
+        sim_info.attrs['ny']           = kwargs['ny'] 
+        sim_info.attrs['linspace']     = False 
+        
+        kwargs['t_last'] = kwargs['t'] 
 
 def main():
     parser = argparse.ArgumentParser(description="Analytic BMK Solution")
@@ -82,10 +106,11 @@ def main():
     # Initial Conditions 
     e0     = args.e0           # initial energy
     rho0   = args.rho0         # initial density
-    ell    = (e0/(rho0 * args.rinit**args.k))**(1/(3 - args.k))  # inital length scale
+    ell    = (e0/(rho0 * args.rinit**(-args.k)))**(1/(3 - args.k))  # inital length scale
     t      = args.t0           # initial simulation time
     
-    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell * 2.0 ** (-1.0/3.0)
+    gamma_shock_crit = 2.0
+    tphysical     = (((17.0 - 4.0 * args.k) / (8*np.pi)) * ell * gamma_shock_crit ** (-2.0))**(1.0/3.0)
     gamma_shock0  = calc_shock_lorentz_gamma(ell, t, args.k)
     r0            = calc_shock_radius(gamma_shock0, t, args.bmk_m)
     # grid constraints
@@ -113,8 +138,9 @@ def main():
         if not args.nd_plot:
             fig, ax  = plt.subplots(1, 1, figsize=(4,4))
     
-    i = 0
+    i = 0 
     t_last = 0
+    null   = np.zeros_like(gamma_fluid)
     for tidx, t in enumerate(times):
         # Solution only physical when gamma_shock**2/2 >= chi
         chi_critical = 0.5 * gamma_shock[tidx]**2
@@ -132,48 +158,37 @@ def main():
             gamma_fluid[theta.size - theta_j_idx:, smask] = calc_gamma_fluid(gamma_shock[smask], chi[smask])
             pressure[theta.size - theta_j_idx:, smask]    = calc_pressure(gamma_shock[smask], chi[smask], rho0, args.k)
         
-        gamma_fluid[gamma_fluid < 1]       = 1
-        rho[:, chi > chi_critical]         = 1e-10 
-        pressure[:, chi > chi_critical]    = 1e-10
+        # gamma_fluid[gamma_fluid < 1]       = 1
+        # rho[:, chi > chi_critical]         = 1e-10 
+        # pressure[:, chi > chi_critical]    = 1e-10
         gamma_fluid[:, chi > chi_critical] = 1
-        if True:
-            n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
-            file_name = f'{data_dir}{npolar}.chkpt.{i:03}.h5'
-            with h5py.File(f'{file_name}', 'w') as f:
-                print(f'[Writing to {file_name}]')
-                beta = (1.0 - (gamma_fluid)**(-2.0))**0.5
-                beta1 = beta 
-                beta2 = 0 * beta 
-                sim_info = f.create_dataset('sim_info', dtype='i')
-                f.create_dataset('rho',   data=rho)
-                f.create_dataset('p',     data=pressure)
-                f.create_dataset('v1',    data=beta1)
-                f.create_dataset('v2',    data=beta2)
-                f.create_dataset('radii', data=r)
-                sim_info.attrs['current_time'] = t 
-                sim_info.attrs['dt']           = t - t_last
-                sim_info.attrs['ad_gamma']     = 4.0 / 3.0 
-                sim_info.attrs['x1min']        = r0 
-                sim_info.attrs['x1max']        = args.rmax 
-                sim_info.attrs['x2min']        = theta_min
-                sim_info.attrs['x2max']        = theta_max
-                sim_info.attrs['nx']           = nr 
-                sim_info.attrs['ny']           = npolar
-                sim_info.attrs['linspace']     = False 
-            
-            if args.plot:
-                if not args.nd_plot:
-                    if args.var == 'gamma_beta':
-                        gb  = (gamma_fluid**2 - 1.0)**0.5
-                        ax.semilogx(r, gb[args.tidx])
-                    elif args.var == 'rho':
-                        ax.semilogx(r, rho[args.tidx])
-                    elif args.var == 'pressure':
-                        ax.semilogx(r, pressure[args.tidx])
-            
-            t_last = t 
-            i += 1
-
+        
+        n_zeros   = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
+        
+        file_name = f'{data_dir}{npolar}.chkpt.{i:03}.h5'
+        beta = (1.0 - (gamma_fluid)**(-2.0))**0.5
+        kwargs = {
+            'file_name': file_name,
+            'rho': rho,
+            'pressure': pressure,
+            'beta': beta, 
+            'null': null, 
+            'r': r,
+            't': t,
+            't_last': t_last,
+            'x1min': r0,
+            'x1max': args.rmax,
+            'x2min': theta_min,
+            'x2max': theta_max,
+            'nx': nr,
+            'ny': npolar, 
+            'i': i,
+        }
+        p = multiprocessing.Process(target=write_chkpt, args=(kwargs,))
+        p.start()
+        p.join()
+        i += 1
+        
     if args.plot:
         if not args.nd_plot:
             if args.var == 'gamma_beta':
