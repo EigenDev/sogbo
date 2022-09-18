@@ -62,27 +62,26 @@ def write_chkpt(kwargs):
         sim_info.attrs['ny']           = kwargs['ny'] 
         sim_info.attrs['linspace']     = False 
         
-        kwargs['t_last'] = kwargs['t'] 
 
 def main():
     parser = argparse.ArgumentParser(description="Analytic BMK Solution")
-    parser.add_argument('--e0',     help='initial energy input',      dest='e0',    type=float, default=1.0)
-    parser.add_argument('--rho0',   help='initial density of medium', dest='rho0',  type=float, default=1.0)
-    parser.add_argument('--t0',     help='iniiial sim time',          dest='t0',    type=float, default=0.01)
-    parser.add_argument('--tend',   help='dimensionless time to end simulation',    type=float, dest='tend', default=0.8)
-    parser.add_argument('--nr',     help='number of radial zones',    dest='nr', type=int, default=128)
-    parser.add_argument('--rmax',   help='max radius', dest='rmax', type=float, default=1.0)
-    parser.add_argument('--var',    help='select the variable you want to plot', dest='var', default = 'gamma_beta', choices=['gamma_beta', 'rho', 'pressure'])
-    parser.add_argument('--m',      help='BMK self similarity parameter', default=3, type=float, dest='bmk_m')
-    parser.add_argument('--k',      help='Density gradient slope', default=0, type=float, dest='k')
-    parser.add_argument('--rinit',  help='initial blast_wave radius', default=0.01, type=float, dest='rinit')
-    parser.add_argument('--data_dir', help='Data directory', default='data/bmk_twod', type=str, dest='data_dir')
-    parser.add_argument('--tinterval',      help='time intervals to plot', default=0.1, type=float, dest='tinterval')
-    parser.add_argument('--theta_j',help='Opening angle of blast wave cone', default=np.pi, type=float, dest='theta_j')
-    parser.add_argument('--tidx',   help='index for viewing angle of blast wave', default=0, type=int, dest='tidx')
+    parser.add_argument('--e0',        help='initial energy input',      dest='e0',    type=float, default=1.0)
+    parser.add_argument('--rho0',      help='initial density of medium', dest='rho0',  type=float, default=1.0)
+    parser.add_argument('--t0',        help='iniiial sim time',          dest='t0',    type=float, default=0.01)
+    parser.add_argument('--tend',      help='dimensionless time to end simulation',    type=float, dest='tend', default=0.8)
+    parser.add_argument('--nr',        help='number of radial zones',    dest='nr', type=int, default=128)
+    parser.add_argument('--rmax',      help='max radius', dest='rmax', type=float, default=1.0)
+    parser.add_argument('--var',       help='select the variable you want to plot', dest='var', default = 'gamma_beta', choices=['gamma_beta', 'rho', 'pressure'])
+    parser.add_argument('--m',         help='BMK self similarity parameter', default=3, type=float, dest='bmk_m')
+    parser.add_argument('--k',         help='Density gradient slope', default=0, type=float, dest='k')
+    parser.add_argument('--rinit',     help='initial blast_wave radius', default=0.01, type=float, dest='rinit')
+    parser.add_argument('--data_dir',  help='Data directory', default='data/bmk_twod', type=str, dest='data_dir')
+    parser.add_argument('--tinterval', help='time intervals to plot', default=0.1, type=float, dest='tinterval')
+    parser.add_argument('--theta_j',   help='Opening angle of blast wave cone', default=0.1, type=float, dest='theta_j')
+    parser.add_argument('--tidx',      help='index for viewing angle of blast wave', default=0, type=int, dest='tidx')
     parser.add_argument('--nd_plot',   help='set if want full 2D plot', default=False, action='store_true', dest='nd_plot')
     parser.add_argument('--full_sphere',   help='set if want to account for full sphere', default=False, action='store_true', dest='full_sphere')
-    parser.add_argument('--save',   help='flag to save figure. takes name of figure as arg', dest='save', default=None, type=str)
+    parser.add_argument('--save',      help='flag to save figure. takes name of figure as arg', dest='save', default=None, type=str)
     parser.add_argument('--plot', dest='plot', help='set if want to see plot', default=False, action='store_true')
     args = parser.parse_args()
     
@@ -110,9 +109,10 @@ def main():
     t      = args.t0           # initial simulation time
     
     gamma_shock_crit = 2.0
-    tphysical     = (((17.0 - 4.0 * args.k) / (8*np.pi)) * ell * gamma_shock_crit ** (-2.0))**(1.0/3.0)
-    gamma_shock0  = calc_shock_lorentz_gamma(ell, t, args.k)
-    r0            = calc_shock_radius(gamma_shock0, t, args.bmk_m)
+    tphysical        = (((17.0 - 4.0 * args.k) / (8*np.pi)) * ell * gamma_shock_crit ** (-2.0))**(1.0/3.0)
+    gamma_shock0     = calc_shock_lorentz_gamma(ell, t, args.k)
+    r0               = calc_shock_radius(gamma_shock0, t, args.bmk_m)
+    
     # grid constraints
     theta_max     = np.pi if args.full_sphere else np.pi / 2
     theta_min     = 0.0
@@ -138,9 +138,10 @@ def main():
         if not args.nd_plot:
             fig, ax  = plt.subplots(1, 1, figsize=(4,4))
     
-    i = 0 
+    i      = 0 
     t_last = 0
     null   = np.zeros_like(gamma_fluid)
+    
     for tidx, t in enumerate(times):
         # Solution only physical when gamma_shock**2/2 >= chi
         chi_critical = 0.5 * gamma_shock[tidx]**2
@@ -188,6 +189,7 @@ def main():
         p.start()
         p.join()
         i += 1
+        t_last = t
         # print(i)
         # with h5py.File(f'{file_name}', 'w') as f:
         #     print(f'[Writing to {file_name}]')

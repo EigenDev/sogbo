@@ -84,16 +84,17 @@ def main():
     # Initial Conditions 
     e0     = args.e0           # initial energy
     rho0   = args.rho0         # initial density
-    ell    = (e0/(rho0 * args.rinit**args.k))**(1/(3 - args.k))  # inital length scale
+    ell    = (e0/(rho0 * args.rinit**(-args.k)))**(1/(3 - args.k))  # inital length scale
     t      = args.t0           # initial simulation time
     
-    tphysical     = ((17.0 - 4.0 * args.k) / (8*np.pi))**(1/3) * ell * 2.0 ** (-1.0/3.0)
-    gamma_shock0  = calc_gamma_shock(ell, t, args.k)
-    r0            = calc_shock_radius(gamma_shock0, t, args.bmk_m)
-    nr            = args.nzones
-    times         = np.geomspace(t, tphysical, nr)
-    gamma_shock   = calc_gamma_shock(ell, times, args.k)
-    r             = calc_shock_radius(gamma_shock, times, args.bmk_m)
+    gamma_shock_crit = 2.0 
+    tphysical        = (((17.0 - 4.0 * args.k) / (8*np.pi)) * ell * gamma_shock_crit ** (-2.0))**(1.0/3.0)
+    gamma_shock0     = calc_gamma_shock(ell, t, args.k)
+    r0               = calc_shock_radius(gamma_shock0, t, args.bmk_m)
+    nr               = args.nzones
+    times            = np.geomspace(t, tphysical, nr)
+    gamma_shock      = calc_gamma_shock(ell, times, args.k)
+    r                = calc_shock_radius(gamma_shock, times, args.bmk_m)
     
     # Initial arrays
     gamma_fluid = np.ones_like(r)
@@ -108,6 +109,7 @@ def main():
     
     i = 0
     t_last = 0
+    
     for tidx, t in enumerate(times):  
         # Solution only physical when gamma_shock**2/2 >= chi
         chi_critical = 0.5 * gamma_shock[tidx]**2 
@@ -123,39 +125,36 @@ def main():
         pressure[chi > chi_critical]    = 1e-10
         gamma_fluid[chi > chi_critical] = 1
 
-        if True:
-            n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
-            file_name = f'{data_dir}{args.nzones}.chkpt.{i:03}.h5'
-            with h5py.File(f'{file_name}', 'w') as f:
-                print(f'[Writing to {file_name}]')
-                beta = (1.0 - gamma_fluid**(-2.0))**0.5
-                sim_info = f.create_dataset('sim_info', dtype='i')
-                f.create_dataset('rho', data=rho)
-                f.create_dataset('p', data=pressure)
-                f.create_dataset('v', data=beta)
-                f.create_dataset('radii', data=r)
-                sim_info.attrs['current_time'] = t 
-                sim_info.attrs['dt']           = t - t_last
-                sim_info.attrs['ad_gamma']     = 4.0 / 3.0 
-                sim_info.attrs['x1min']        = r[0]
-                sim_info.attrs['x1max']        = r[-1] 
-                sim_info.attrs['Nx']           = args.nzones 
-                sim_info.attrs['linspace']     = False 
-                
-            if args.plot:
-                if args.var == 'gamma_beta':
-                    gb  = (gamma_fluid**2 - 1.0)**0.5
-                    ax.semilogx(r, gb)
-                    # ax.axvline(t, linestyle='--')
-                elif args.var == 'rho':
-                    ax.semilogx(r, rho)
-                elif args.var == 'pressure':
-                    ax.semilogx(r, pressure)
+        n_zeros = str(int(4 - int(np.floor(np.log10(i))) if i > 0 else 3))
+        file_name = f'{data_dir}{args.nzones}.chkpt.{i:03}.h5'
+        with h5py.File(f'{file_name}', 'w') as f:
+            print(f'[Writing to {file_name}]')
+            beta = (1.0 - gamma_fluid**(-2.0))**0.5
+            sim_info = f.create_dataset('sim_info', dtype='i')
+            f.create_dataset('rho', data=rho)
+            f.create_dataset('p', data=pressure)
+            f.create_dataset('v', data=beta)
+            f.create_dataset('radii', data=r)
+            sim_info.attrs['current_time'] = t 
+            sim_info.attrs['dt']           = t - t_last
+            sim_info.attrs['ad_gamma']     = 4.0 / 3.0 
+            sim_info.attrs['x1min']        = r[0]
+            sim_info.attrs['x1max']        = r[-1] 
+            sim_info.attrs['Nx']           = args.nzones 
+            sim_info.attrs['linspace']     = False 
             
-            print(t - t_last)
-            zzz = input('')
-            t_last = t
-            i += 1
+        if args.plot:
+            if args.var == 'gamma_beta':
+                gb  = (gamma_fluid**2 - 1.0)**0.5
+                ax.semilogx(r, gb)
+                # ax.axvline(t, linestyle='--')
+            elif args.var == 'rho':
+                ax.semilogx(r, rho)
+            elif args.var == 'pressure':
+                ax.semilogx(r, pressure)
+        
+        t_last = t
+        i += 1
     
     if args.plot:
         if args.var == 'gamma_beta':
