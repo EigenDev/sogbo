@@ -82,6 +82,7 @@ def main():
     parser.add_argument('--nd_plot',   help='set if want full 2D plot', default=False, action='store_true', dest='nd_plot')
     parser.add_argument('--full_sphere',   help='set if want to account for full sphere', default=False, action='store_true', dest='full_sphere')
     parser.add_argument('--save',      help='flag to save figure. takes name of figure as arg', dest='save', default=None, type=str)
+    parser.add_argument('--ntheta',    help='number of polar zones', default=None, type=int)
     parser.add_argument('--plot', dest='plot', help='set if want to see plot', default=False, action='store_true')
     args = parser.parse_args()
     
@@ -118,7 +119,7 @@ def main():
     theta_min     = 0.0
     nr            = args.nr 
     dlogr         = np.log10(tphysical / r0) / (nr - 1)
-    npolar        = int(theta_max / dlogr + 1)
+    npolar        = int(theta_max / dlogr + 1) if not args.ntheta else args.ntheta
     theta         = np.linspace(theta_min, theta_max, npolar)
     times         = np.geomspace(t, tphysical, nr)
     gamma_shock   = calc_shock_lorentz_gamma(ell, times, args.k)
