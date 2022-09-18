@@ -274,7 +274,7 @@ namespace sogbo_rad
      * 
      * @return the summed fluxes in each frequency / time bin declared
     */
-    const std::vector<double> calc_fnu_2d(
+    const std::vector<double> calc_fnu(
         const sim_conditions args,
         const quant_scales   qscales,
         std::vector<std::vector<double>> &fields,
@@ -293,7 +293,6 @@ namespace sogbo_rad
         const auto pre = fields[2];             // pressure
         const auto nt  = tbin_edges.size();     // time bin size
         const auto nf  = args.nus.size();       // frequency bin size
-
 
         // Extract the geomtry of the mesh
         const auto x1      = mesh[0];
@@ -326,6 +325,7 @@ namespace sogbo_rad
 
         int jreal = 0;
         int kreal = 0;
+
         for (int kk=0; kk < nk; kk++)
         {       
             if (!on_axis)
@@ -362,15 +362,15 @@ namespace sogbo_rad
                     //================================================================
                     //                    HYDRO CONDITIONS
                     //================================================================
-                    const double p     = 2.5;  // Electron number index
-                    const double eps_b = 0.1;  // Magnetic field fraction of internal energy 
-                    const double eps_e = 0.1;  // shocked electrons fraction of internal energy
+                    const double p     = args.p;      // Electron number index
+                    const double eps_b = args.eps_b;  // Magnetic field fraction of internal energy 
+                    const double eps_e = args.eps_e;  // shocked electrons fraction of internal energy
                     
                     const auto rho_einternal = pre[central_idx] * qscales.pre_scale / (args.ad_gamma - 1.0) * units::erg_per_cm3;      // internal energy density
                     const auto bfield        = calc_shock_bfield(rho_einternal, eps_b);                                                // magnetic field based on equipartition
                     const auto n_e_proper    = rho[central_idx] * qscales.rho_scale * units::g_per_cm3 / constants::m_p;               // electron number density
                     const auto nu_g          = calc_gyration_frequency(bfield);                                                        // gyration frequency
-                    const auto d             = 1e28 * units::cm;                                                                       // distance to source
+                    const auto d             = args.d_L * units::cm;                                                                       // distance to source
                     const auto gamma_min     = calc_minimum_lorentz(eps_e, rho_einternal, n_e_proper, p);                              // Minimum Lorentz factor of electrons 
                     const auto gamma_crit    = calc_critical_lorentz(bfield, t_emitter);                                               // Critical Lorentz factor of electrons
 

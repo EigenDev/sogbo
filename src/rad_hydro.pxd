@@ -3,13 +3,13 @@
 from libcpp.vector cimport vector
 cdef extern from "rad_units.hpp" namespace "sogbo_rad":
     cdef struct sim_conditions:
-        double dt, theta_obs, ad_gamma, current_time
+        double dt, theta_obs, ad_gamma, current_time, p, eps_e, eps_b, z, d_L
         vector[double] nus
 
     cdef struct quant_scales:
         double time_scale, pre_scale, rho_scale, v_scale, length_scale
 
-    cdef vector[double] calc_fnu_2d(
+    cdef vector[double] calc_fnu(
         sim_conditions args,
         quant_scales  qscales,
         vector[vector[double]] fields, 

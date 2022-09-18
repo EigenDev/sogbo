@@ -60,8 +60,13 @@ def py_calc_fnu(
     sim_cond.current_time = sim_info['current_time']
     sim_cond.theta_obs    = sim_info['theta_obs']
     sim_cond.ad_gamma     = sim_info['adiabatic_gamma']
-    sim_cond.nus          = sim_info['nus']
-
+    sim_cond.nus          = sim_info['nus'] * (1 + sim_info['z'])
+    sim_cond.z            = sim_info['z']
+    sim_cond.p            = sim_info['p']
+    sim_cond.eps_e        = sim_info['eps_e']
+    sim_cond.eps_b        = sim_info['eps_b']
+    sim_cond.d_L          = sim_info['d_L']
+   
     # set the dimensional scales
     quant_scales.time_scale    = qscales['time_scale']
     quant_scales.pre_scale     = qscales['pre_scale']
@@ -69,12 +74,12 @@ def py_calc_fnu(
     quant_scales.v_scale       = 1.0 
     quant_scales.length_scale  = qscales['length_scale']
 
-    calculated_flux = calc_fnu_2d(
+    calculated_flux = calc_fnu(
                         sim_cond,
                         quant_scales,
                         flattened_fields, 
                         flattened_mesh,
-                        tbin_edges,
+                        tbin_edges / (1 + sim_info['z']),
                         flattened_flux, 
                         chkpt_idx,
                         data_dim

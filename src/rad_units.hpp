@@ -12,7 +12,7 @@ namespace sogbo_rad
 {
     struct sim_conditions
     {
-        double dt, theta_obs, ad_gamma, current_time;
+        double dt, theta_obs, ad_gamma, current_time, p, z, eps_e, eps_b, d_L;
         std::vector<double> nus;
     };
 
@@ -176,7 +176,7 @@ namespace sogbo_rad
         const units::frequency nu_m
     );
 
-    const std::vector<double> calc_fnu_2d(
+    const std::vector<double> calc_fnu(
         const sim_conditions args,
         const quant_scales   qscales,
         std::vector<std::vector<double>> &fields,

@@ -12,7 +12,7 @@ import argparse
 import os 
 import cycler
 import h5py 
-import time 
+import time as pytime
 
 try:
     import cmasher as cmr 
@@ -24,128 +24,6 @@ SMALL_SIZE   = 8
 DEFAULT_SIZE = 10
 BIGGER_SIZE  = 12
 
-    
-def sari_piran_narayan_99(
-    fields:         dict, 
-    args:           argparse.ArgumentParser, 
-    tbin_edges:     np.ndarray,
-    fbin_edges:     np.ndarray,
-    flux_array:     np.ndarray,
-    mesh:           dict, 
-    dset:           dict, 
-    storage:        dict,
-    overplot:       bool=False, 
-    subplot:        bool=False, 
-    ax:             plt.Axes=None, 
-    case:           int=0
-) -> None:
-    
-    beta       = util.calc_beta(fields)
-    w          = util.calc_lorentz_gamma(fields)
-    t_prime    = dset['time'] * util.scales.time_scale
-    t_emitter  = t_prime / w
-    #================================================================
-    #                    HYDRO CONDITIONS
-    #================================================================
-    p     = 2.5  # Electron number index
-    eps_b = 0.1  # Magnetic field fraction of internal energy 
-    eps_e = 0.1  # shocked electrons fraction of internal energy
-    
-    rho_einternal = fields['p'] * util.scales.pre_scale / (dset['ad_gamma'] - 1.0)        # internal energy density
-    bfield        = util.calc_bfield_shock(rho_einternal, eps_b)                          # magnetic field based on equipartition
-    n_e_proper    = fields['rho'] * util.scales.rho_scale / const.m_p.cgs                 # electron number density
-    nu_g          = util.calc_gyration_frequency(bfield)                                  # gyration frequency
-    d             = 1e28 * units.cm                                                       # distance to source
-    gamma_min     = util.calc_minimum_lorentz(eps_e, rho_einternal, n_e_proper, p)        # Minimum Lorentz factor of electrons 
-    gamma_crit    = util.calc_critical_lorentz(bfield, t_emitter)                         # Critical Lorentz factor of electrons
-
-    # step size between checkpoints
-    if 'dt' in dset:
-        dt  = dset['dt'] * util.scales.time_scale
-    else:
-        dt  = args.dt * util.scales.time_scale                                      
-
-    # no moving mesh yet, so this is fine
-    if case == 0:
-        on_axis = False
-        # on axis observers don't need phi zones
-        util.generate_pseudo_mesh(args, mesh, expand_space=True)
-        
-        # Calc cell volumes
-        if on_axis:
-            dvolume = util.calc_cell_volume2D(mesh['rr'], mesh['thetta']) * util.scales.length_scale **3
-        else:
-            dvolume = util.calc_cell_volume3D(mesh['rr'], mesh['thetta'], mesh['phii']) * util.scales.length_scale ** 3
-        
-        if on_axis:
-            rhat = np.array([np.sin(mesh['thetta']), np.zeros_like(mesh['thetta']), np.cos(mesh['thetta'])])  # radial unit vector        
-        else:
-            rhat = np.array([np.sin(mesh['thetta'])*np.cos(mesh['phii']), np.sin(mesh['thetta'])*np.sin(mesh['phii']), np.cos(mesh['thetta'])])  # radial unit vector  
-        
-        # Place observer along chosen axis
-        theta_obs  = np.deg2rad(args.theta_obs) * np.ones_like(mesh['thetta'])
-        obs_hat    = np.array([np.sin(theta_obs), np.zeros_like(mesh['thetta']), np.cos(theta_obs)])
-        if on_axis:
-            obs_idx    = util.find_nearest(mesh['thetta'][:,0], np.deg2rad(args.theta_obs))[0]
-        else:
-            obs_idx    = util.find_nearest(mesh['thetta'][0,:,0], np.deg2rad(args.theta_obs))[0]
-            
-        storage['obs_idx'] = obs_idx
-        # Store everything in a dictionary that is constant
-        storage['rhat']     = rhat 
-        storage['obs_hat']  = obs_hat 
-        storage['ndim']     = ndim
-        storage['dvolume']  = dvolume
-        storage['on_axis']  = on_axis
-        storage['rr']       = mesh['rr']
-        t_obs   = t_prime - rr * util.scales.length_scale * util.vector_dotproduct(rhat, obs_hat) / const.c.cgs
-    else:
-        dt_chkpt = t_prime - storage['t_prime']
-        t_obs    = storage['t_obs'] + dt_chkpt
-
-    beta_vec = beta * storage['rhat']
-    obs_hat  = storage['obs_hat']
-    
-    # Calculate the maximum flux based on the average bolometric power per electron
-    nu_c              = util.calc_nu(gamma_crit, nu_g)                                   # Critical frequency
-    nu_m              = util.calc_nu(gamma_min, nu_g)                                    # Minimum frequency
-    delta_doppler     = util.calc_doppler_delta(w, beta_vector=beta_vec, n_hat=obs_hat)  # Doppler factor
-    emissivity        = util.calc_emissivity(bfield, n_e_proper, p)                      # Emissibity per cell 
-    total_power       = storage['dvolume'] * emissivity                                  # Total emitted power per unit frequency in each cell volume
-    flux_max          = total_power * delta_doppler ** 2.0                               # Maximum flux 
-    
-    storage['t_obs']   = t_obs
-    storage['t_prime'] = t_prime
-    t_obs              = t_obs.to(units.day)
-    
-    # the effective lifetime of the emitting cell must be accounted for
-    dt_obs = tbin_edges[1:] - tbin_edges[:-1]
-    dt_day = dt.to(units.day)
-
-    # loop through the given frequencies and put them in their respective locations in dictionary
-    for freq in args.nu:
-        # The frequency we see is doppler boosted, so account for that
-        nu_source = freq * units.Hz / delta_doppler
-        power_cool = util.calc_powerlaw_flux(mesh, flux_max, p, nu_source, nu_c, nu_m, ndim = storage['ndim'], on_axis = storage['on_axis'])
-        ff = (power_cool / (4.0 * np.pi * d **2)).to(units.mJy)
-        
-        # place the fluxes in the appropriate time bins
-        t_obs_day = t_obs.to(units.day)
-        for idx, t1 in enumerate(tbin_edges[:-1]):
-            t2 = tbin_edges[idx + 1]
-            trat = dt_day / dt_obs[idx] if case != 0 else 1.0
-            flux_array[freq][idx] += trat * ff[(t_obs > t1) & (t_obs < t2)].sum()
-            print(f"victory!")
-            print(f"{t1} --- {t2}")
-            print(f"bin:{t2 - t1}")
-            print(f"t_prime: {t_prime}")
-            print(f"observer time: {t_obs_day[0][0]}")
-            print(f"added flux: {trat * ff[0].sum()}");
-            print(f"boosted power: {flux_max[0,0].value}")
-            print(f"power cool: {power_cool[0,0].value}")
-            print(f"before conversion: {(power_cool / (4.0 * np.pi * d **2))[0,0]}")
-            zzz = input('')
-        
 def log_events(
     fields:        dict, 
     args:          argparse.ArgumentParser, 
@@ -312,7 +190,7 @@ def main():
     parser.add_argument('--data_files', dest='data_files', type=str, help='data file from self computed light curves', default=None, nargs='+')
     parser.add_argument('--cmap', help='colormap scheme for light curves', dest='cmap', default=None, type=str)
     parser.add_argument('--clims', help='color value limits', dest='clims', nargs='+', type=float, default=[0.25, 0.75])
-    parser.add_argument('--file_save', dest='file_save', help='name of file to be saved as', type=str, default='some_lc.h5')
+    parser.add_argument('--dfile_out', dest='dfile_out', help='name of file to be saved as', type=str, default='some_lc.h5')
     parser.add_argument('--example_labels', dest='example_labels', help='label(s) of the example curve\'s markers', type=str, default=['example'], nargs='+')
     parser.add_argument('--xlims', dest='xlims', help='x limits in plot', default=None, type=float, nargs='+')
     parser.add_argument('--ylims', dest='ylims', help='y limits in plot', default=None, type=float, nargs='+') 
@@ -320,6 +198,11 @@ def main():
     parser.add_argument('--title', dest='title', help='title of plot', default=None)
     parser.add_argument('--spectra', dest='spectra', help='set if want to plot spectra instead of light curve', default=False, action='store_true')
     parser.add_argument('--times', dest='times', help='discrtete times for spectra calculation', default=[1], nargs='+', type=float)
+    parser.add_argument('--z', help='redshift', type=float, default=0)
+    parser.add_argument('--dL', help='luminosity distance in [cm]', default=1e28, type=float)
+    parser.add_argument('--eps_e', help='energy density fraction in electrons', default=0.1, type=float)
+    parser.add_argument('--eps_b', help='energy density fraction in magnetic field', default=0.1, type=float)
+    parser.add_argument('--p', help='electron distribution index', default=2.5, type=float)
     try:
         parser.add_argument('--compute', dest='compute', 
                             help='turn off if you have a data file you just want to plot immediately', 
@@ -376,7 +259,7 @@ def main():
         tbin_edge     = util.get_tbin_edges(args, file_reader, files)
         tbin_edges    = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
         time_bins     = np.sqrt(tbin_edges[1:] * tbin_edges[:-1])
-        flux_per_bin = {i: np.zeros(nbins) * units.mJy for i in args.nu}
+        fnu = {i: np.zeros(nbins) * units.mJy for i in args.nu}
         events_list   = np.zeros(shape=(len(files), 2))
         storage       = {}
         scales_dict = {
@@ -387,10 +270,17 @@ def main():
             'v_scale':      1.0
         }   
         theta_obs = np.deg2rad(args.theta_obs)
+        dL = util.get_dL(args.z)
         sim_info = {
             'theta_obs':       theta_obs,
-            'nus':             freqs.value
+            'nus':             freqs.value,
+            'z':               args.z,
+            'd_L':             dL.value,
+            'eps_e':           args.eps_e,
+            'eps_b':           args.eps_b,
+            'p':               args.p,
         }
+        
         for idx, file in enumerate(files):
             fields, setup, mesh = file_reader(file)
             # Generate a pseudo mesh if computing off-axis afterglows
@@ -398,24 +288,26 @@ def main():
             sim_info['dt']              = setup['dt']
             sim_info['adiabatic_gamma'] = setup['ad_gamma']
             sim_info['current_time']    = setup['time']
-            t1 = time.time()
+            t1 = pytime.time()
             sogbo.py_calc_fnu(
                 fields     = fields, 
                 tbin_edges = tbin_edges.value,
-                flux_array = flux_per_bin,
+                flux_array = fnu,
                 mesh       = mesh, 
                 qscales    = scales_dict, 
                 sim_info   = sim_info,
                 chkpt_idx  = idx,
                 data_dim   = args.dim
             )
-            print(f"Processed file {file} in {time.time() - t1:.2f} s", flush=True)
-    
-    
+            print(f"Processed file {file} in {pytime.time() - t1:.2f} s", flush=True)
+
+        for key in fnu.keys():
+            fnu[key] *= (1 + args.z)
+            
         # Save the data
         if args.compute:
-            file_name = args.file_save
-            if os.path.splitext(args.file_save)[1] != '.h5':
+            file_name = args.dfile_out
+            if os.path.splitext(file_name)[1] != '.h5':
                 file_name += '.h5'
             
             isFile = os.path.isfile(file_name)
@@ -431,7 +323,7 @@ def main():
             print(f"Saving file as {file_name}...")
             print(80*'=')
             with h5py.File(file_name, 'w') as hf: 
-                fnu_save = np.array([flux_per_bin[key] for key  in flux_per_bin.keys()])
+                fnu_save = np.array([fnu[key] for key  in fnu.keys()])
                 dset = hf.create_dataset('sogbo_data', dtype='f')
                 hf.create_dataset('nu',   data=[nu for nu in args.nu])
                 hf.create_dataset('fnu',  data=fnu_save)
@@ -451,7 +343,7 @@ def main():
                 time_label = r'%.1f \times 10^{%d}'%(front_part, power_of_ten)
 
             color = next(color_cycle)
-            spectra = np.asanyarray([flux_per_bin[key][see_day_idx].value for key in flux_per_bin.keys()])
+            spectra = np.asanyarray([fnu[key][see_day_idx].value for key in fnu.keys()])
             sim_lines[tidx], = ax.plot(args.nu, spectra, color=color, label=r'$t={} \rm day$'.format(time_label))
             
             if args.example_data is not None:
@@ -477,7 +369,7 @@ def main():
 
             color = next(color_cycle)
             if args.compute:
-                sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+                sim_lines[nidx], = ax.plot(time_bins, fnu[freq], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
             
             if args.example_data is not None:
                 marks = cycler.cycle(['o', 's'])
@@ -496,8 +388,8 @@ def main():
     if args.xlims is not None:
         tbound1, tbound2 = np.asanyarray(args.xlims) * units.day 
     else:
-        tbound1 = time_bins[0]
-        tbound2 = time_bins[-1]
+        tbound1 = time_bins[0]  if 'time_bins' in locals() else dat['tday'][0]
+        tbound2 = time_bins[-1] if 'time_bins' in locals() else dat['tday'][-1]
         
     if args.title is not None:
         if args.dim == 1:
