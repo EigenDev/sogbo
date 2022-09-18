@@ -4,8 +4,11 @@ data/
 *.h5
 *.so
 *.o
+*.txt
+*.npz
 .vscode/
 src/rad_hydro.cpp
+slurm_script.py
 sogbo.egg-info/
 __pycache__/
 plots/*
