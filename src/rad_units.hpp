@@ -25,7 +25,7 @@ namespace sogbo_rad
     /*
     The Doppler Boost Factor
     */
-    const double calc_delta_doppler(const double lorentz_gamma, const double beta[3], const double nhat[3]);
+    const double calc_delta_doppler(const double lorentz_gamma, const std::vector<double> beta, const std::vector<double> nhat);
 
     /*
     The velocity of the flow in dimensions of speed of ligt

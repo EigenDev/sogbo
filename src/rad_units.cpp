@@ -1,7 +1,7 @@
 /**
     A radiation module that will be used to calculate synchtron lights curves, spectra, and sky maps
     from high-energy physical processes
-    @file rad.cpp
+    @file rad_units.cpp
     @author Marcus DuPont
     @version 0.1 05/20/22
 */
@@ -354,11 +354,11 @@ namespace sogbo_rad
                 #pragma omp for nowait
                 for (int ii = 0; ii < ni; ii++)
                 {
-                    const auto central_idx  = kreal * ni * nj + jreal * ni + ii;
-                    const auto beta         = calc_beta(gb[central_idx]);
-                    const auto w            = calc_lorentz_gamma(gb[central_idx]);
-                    const auto t_prime      = args.current_time * qscales.time_scale * units::s;
-                    const auto t_emitter    = t_prime / w;
+                    const auto central_idx  = kreal * ni * nj + jreal * ni + ii;                 // index for current zone
+                    const auto beta         = calc_beta(gb[central_idx]);                        // velocity in units of c
+                    const auto w            = calc_lorentz_gamma(gb[central_idx]);               // Lorentz factor
+                    const auto t_prime      = args.current_time * qscales.time_scale * units::s; // time in source frame
+                    const auto t_emitter    = t_prime / w;                                       // time in emitter frame
                     //================================================================
                     //                    HYDRO CONDITIONS
                     //================================================================
