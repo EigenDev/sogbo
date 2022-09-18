@@ -1,10 +1,9 @@
 #! /usr/bin/env python
 
-
 import numpy as np 
 import astropy.constants as const 
-import sogbo
 import astropy.units as units 
+import sogbo
 import matplotlib.pyplot as plt 
 import matplotlib.lines as mlines
 import matplotlib.markers as mmarkers
@@ -12,8 +11,8 @@ import utility as util
 import argparse
 import os 
 import cycler
-import sys
 import h5py 
+import time 
 
 try:
     import cmasher as cmr 
@@ -309,12 +308,12 @@ def main():
     parser.add_argument('--ntbins', dest='ntbins', type=int, help='number of time bins', default=50)
     parser.add_argument('--theta_samples', dest='theta_samples', type=int, help='number of theta_samples', default=None)
     parser.add_argument('--phi_samples', dest='phi_samples', type=int, help='number of phi', default=10)
-    parser.add_argument('--example_curve', dest='example_curve', type=str, help='data file from example light curves', default=None)
+    parser.add_argument('--example_data', dest='example_data', type=str, help='data file(s) from other afterglow library', nargs = '+', default=None)
     parser.add_argument('--data_files', dest='data_files', type=str, help='data file from self computed light curves', default=None, nargs='+')
     parser.add_argument('--cmap', help='colormap scheme for light curves', dest='cmap', default=None, type=str)
     parser.add_argument('--clims', help='color value limits', dest='clims', nargs='+', type=float, default=[0.25, 0.75])
     parser.add_argument('--file_save', dest='file_save', help='name of file to be saved as', type=str, default='some_lc.h5')
-    parser.add_argument('--example_label', dest='example_label', help='label of the example curve\'s markers', type=str, default='example')
+    parser.add_argument('--example_labels', dest='example_labels', help='label(s) of the example curve\'s markers', type=str, default=['example'], nargs='+')
     parser.add_argument('--xlims', dest='xlims', help='x limits in plot', default=None, type=float, nargs='+')
     parser.add_argument('--ylims', dest='ylims', help='y limits in plot', default=None, type=float, nargs='+') 
     parser.add_argument('--fig_dims', dest='fig_dims', help='figure dimensions', default=(5,4), type=float, nargs='+')
@@ -356,17 +355,9 @@ def main():
         file_reader = util.read_1d_file
     
     fig_dims      = args.fig_dims 
-    freqs         = np.array(args.nu) * units.Hz
     fig, ax       = plt.subplots(figsize=args.fig_dims)
-    nbins         = args.ntbins
-    nbin_edges    = nbins + 1
-    tbin_edge     = util.get_tbin_edges(args, file_reader, files)
-    tbin_edges    = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
-    time_bins     = np.sqrt(tbin_edges[1:] * tbin_edges[:-1])
-    flux_per_bin = {i: np.zeros(nbins) * units.mJy for i in args.nu}
-    events_list   = np.zeros(shape=(len(files), 2))
-    storage       = {}
-    
+    freqs         = np.array(args.nu) * units.Hz
+
     if args.cmap is not None:
         vmin, vmax = args.clims 
         cinterval = np.linspace(vmin, vmax, len(args.nu))
@@ -379,29 +370,35 @@ def main():
     lines = ["-","--","-.",":"]
     linecycler = cycler.cycle(lines)
     
-    scales_dict = {
-        'time_scale':   util.scales.time_scale.value,
-        'length_scale': util.scales.length_scale.value,
-        'rho_scale':    util.scales.rho_scale.value,
-        'pre_scale':    util.scales.pre_scale.value,
-        'v_scale':      1.0
-    }   
-    theta_obs = np.deg2rad(args.theta_obs)
-    sim_info = {
-        'theta_obs':       theta_obs,
-        'nus':             freqs.value
-    }
-    
-    
     if args.compute:
+        nbins         = args.ntbins
+        nbin_edges    = nbins + 1
+        tbin_edge     = util.get_tbin_edges(args, file_reader, files)
+        tbin_edges    = np.geomspace(tbin_edge[0]*0.9, tbin_edge[1]*1.1, nbin_edges)
+        time_bins     = np.sqrt(tbin_edges[1:] * tbin_edges[:-1])
+        flux_per_bin = {i: np.zeros(nbins) * units.mJy for i in args.nu}
+        events_list   = np.zeros(shape=(len(files), 2))
+        storage       = {}
+        scales_dict = {
+            'time_scale':   util.scales.time_scale.value,
+            'length_scale': util.scales.length_scale.value,
+            'rho_scale':    util.scales.rho_scale.value,
+            'pre_scale':    util.scales.pre_scale.value,
+            'v_scale':      1.0
+        }   
+        theta_obs = np.deg2rad(args.theta_obs)
+        sim_info = {
+            'theta_obs':       theta_obs,
+            'nus':             freqs.value
+        }
         for idx, file in enumerate(files):
             fields, setup, mesh = file_reader(file)
             # Generate a pseudo mesh if computing off-axis afterglows
             util.generate_pseudo_mesh(args, mesh)
-            
             sim_info['dt']              = setup['dt']
             sim_info['adiabatic_gamma'] = setup['ad_gamma']
             sim_info['current_time']    = setup['time']
+            t1 = time.time()
             sogbo.py_calc_fnu(
                 fields     = fields, 
                 tbin_edges = tbin_edges.value,
@@ -412,7 +409,7 @@ def main():
                 chkpt_idx  = idx,
                 data_dim   = args.dim
             )
-            print(f"Processed file {file}", flush=True)
+            print(f"Processed file {file} in {time.time() - t1:.2f} s", flush=True)
     
     
         # Save the data
@@ -457,8 +454,8 @@ def main():
             spectra = np.asanyarray([flux_per_bin[key][see_day_idx].value for key in flux_per_bin.keys()])
             sim_lines[tidx], = ax.plot(args.nu, spectra, color=color, label=r'$t={} \rm day$'.format(time_label))
             
-            if args.example_curve is not None:
-                example_data = util.read_example_afterglow_data(args.example_curve)
+            if args.example_data is not None:
+                example_data = util.read_example_afterglow_data(args.example_data)
                 nearest_day  = util.find_nearest(example_data['tday'].value, time)[1] * units.day
                 ax.plot(example_data['freq'], example_data['spectra'][nearest_day], 'o', color=color, markersize=0.5)
             
@@ -479,19 +476,23 @@ def main():
                 freq_label = r'%f \times 10^{%fid}'%(front_part, power_of_ten)
 
             color = next(color_cycle)
-            sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+            if args.compute:
+                sim_lines[nidx], = ax.plot(time_bins, flux_per_bin[freq], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
             
-            if args.example_curve is not None:
-                example_data = util.read_example_afterglow_data(args.example_curve)
-                nu_unit      = freq * units.Hz
-                ax.plot(example_data['tday'], example_data['light_curve_pcj'][nu_unit], 'o', color=color, markersize=0.5)
+            if args.example_data is not None:
+                marks = cycler.cycle(['o', 's'])
+                for file in args.example_data:
+                    example_data = util.read_example_afterglow_data(file)
+                    nu_unit      = freq * units.Hz
+                    ax.plot(example_data['tday'], example_data['fnu'][nu_unit], next(marks), color=color, markersize=1)
             
             if args.data_files is not None:
                 for dfile in args.data_files:
                     dat = util.read_my_datafile(dfile)
                     nu_unit = freq * units.Hz
-                    ax.plot(dat['tday'], dat['fnu'][nu_unit], color=color, markersize=0.5, linestyle=next(linecycler))
-    
+                    doot, = ax.plot(dat['tday'], dat['fnu'][nu_unit], color=color, label=r'$\nu={} \rm Hz$'.format(freq_label))
+                    if not args.compute:
+                        sim_lines[nidx] = doot
     if args.xlims is not None:
         tbound1, tbound2 = np.asanyarray(args.xlims) * units.day 
     else:
@@ -519,18 +520,20 @@ def main():
         ax.set_xlim(tbound1.value, tbound2.value)
         ax.set_xlabel(r'$t_{\rm obs} [\rm day]$')
     
-    if args.example_curve is not None:
-        label = args.example_label
-        example = mlines.Line2D([0], [0], marker='o', color='w', label=label,
-                          markerfacecolor='grey', markersize=5)
+    ex_lines = []
+    if args.example_data is not None:
+        marks = cycler.cycle(['o', 's'])
+        for label in args.example_labels:
+            ex_lines += [mlines.Line2D([0], [0], marker=next(marks), color='w', label=label,
+                            markerfacecolor='grey', markersize=5)]
         
-        ax.legend(handles=[*sim_lines, example])
+        ax.legend(handles=[*sim_lines, *ex_lines])
         # ax.axvline(3.5, linestyle='--', color='red')
     else:
         ax.legend()
     if args.save:
         file_str = f"{args.save}".replace(' ', '_')
-        print(f'saving as {file_str}')
+        print(f'saving as {file_str}.pdf')
         fig.savefig(f'{file_str}.pdf')
         plt.show()
     else:
