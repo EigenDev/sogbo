@@ -440,21 +440,34 @@ def read_example_afterglow_data(filename: str) -> dict:
     """
     Reads afterglow data from afterglow library (Zhang and MacFadyen 2009 or van Eerten et al. 2010)
     """
-    with h5py.File(filename, "r") as hf:
-        nu   = hf.get('nu')[:]   * units.Hz
-        t    = hf.get('t')[:]    * units.s 
-        fnu  = hf.get('fnu')[:]  * 1e26 * units.mJy 
-        fnu2 = hf.get('fnu2')[:] * 1e26 * units.mJy 
+    if filename.endswith('.h5'):
+        with h5py.File(filename, "r") as hf:
+            nu   = hf.get('nu')[:]   * units.Hz
+            t    = hf.get('t')[:]    * units.s 
+            fnu  = hf.get('fnu')[:]  * 1e26 * units.mJy 
+            fnu2 = hf.get('fnu2')[:] * 1e26 * units.mJy 
+    elif filename.endswith('.npz'):
+        dat = np.load(filename)
+        t   = dat['time'] * units.day
+        fnu = dat['flux'] * units.mJy
+        nu  = dat['nu']   * units.Hz
         
     tday = t.to(units.day)
     data_dict = {}
     data_dict['tday'] = tday 
     data_dict['freq'] = nu 
-    data_dict['light_curve'] = {nu_val: fnu[i, :] for i, nu_val in enumerate(nu)}
-    data_dict['light_curve_pcj'] = {nu_val: fnu[i, :] + fnu2[i, :] for i, nu_val in enumerate(nu)}
-    data_dict['spectra'] = {tday_val: fnu[:, i] for i, tday_val in enumerate(tday)}
-    data_dict['spectra_pcj'] = {tday_val: fnu2[:, i] for i, tday_val in enumerate(tday)}
     
+    if filename.endswith('.h5'):
+        data_dict['fnu']  = {nu_val: fnu[i, :] for i, nu_val in enumerate(nu)}
+        data_dict['spectra'] = {tday_val: fnu[:, i] for i, tday_val in enumerate(tday)}
+        
+        if 'fnu2' in locals():
+            data_dict['fnu_pcj'] = {nu_val: fnu[i, :] + fnu2[i, :] for i, nu_val in enumerate(nu)}
+            data_dict['spectra_pcj'] = {tday_val: fnu2[:, i] for i, tday_val in enumerate(tday)}
+    else:
+        data_dict['fnu']  = {nu_val: fnu[:, i] for i, nu_val in enumerate(nu)}
+        data_dict['spectra'] = {tday_val: fnu[i, :] for i, tday_val in enumerate(tday)}
+        
     return data_dict
 
 def read_my_datafile(filename: str) -> dict:
